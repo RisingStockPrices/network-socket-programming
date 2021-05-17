@@ -7,6 +7,7 @@
 
 #define BUF_SIZE 30
 #define MAX_CLIENT 10
+#define TIME_OUT 1000
 void error_handling(char *message);
 
 int main(int argc, char *argv[])
@@ -19,10 +20,8 @@ int main(int argc, char *argv[])
     char buf[BUF_SIZE];
     char message[BUF_SIZE];
 
-    struct sockaddr_in serv_adr, clnt_adr[MAX_CLIENT];
-
-    //list of all peers
-    struct sockaddr_in registeredPeers[MAX_CLIENT];
+    struct sockaddr_in serv_adr, clnt_adr[MAX_CLIENT], client_adr;
+    struct timeval timeout;
 
     socklen_t clnt_adr_sz;
 
@@ -51,12 +50,20 @@ int main(int argc, char *argv[])
     FD_SET(serv_sd, &readfds);
     fd_max = serv_sd;
 
+
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 5000;
+
     while (1)
     {
-        if ((activity = select(fd_max + 1, &readfds, NULL, NULL, NULL)) == -1)
+        if ((activity = select(fd_max + 1, &readfds, NULL, NULL, fd_max==serv_sd?NULL:&timeout)) == -1)
         {
             printf("select error");
             break;
+        }
+
+        else if (activity == 0) {
+            printf("No peers requesting!\n");
         }
 
         for (int i = 0; i < fd_max + 1; i++)
@@ -68,8 +75,8 @@ int main(int argc, char *argv[])
                 {
                     clnt_adr_sz = sizeof(clnt_adr[fd_max]);
                     //incoming peer일때 address 받아옴,,,??
-                    client_sd = accept(serv_sd, (struct sockaddr *)&clnt_adr[fd_max], &clnt_adr_sz);
-
+                    client_sd = accept(serv_sd, (struct sockaddr *)&client_adr, &clnt_adr_sz);
+                    clnt_adr[client_sd] = client_adr;
                     //save client address
 
                     //send neighbor list
@@ -82,9 +89,8 @@ int main(int argc, char *argv[])
                     printf("%s\n", message);
                     if (strcmp("ALIVE", message) == 0)
                     {
-                        // update registeredPeeers - 이미 하고 있는 듯? (clnt_adr[] list)
-
                         // 새로운 neightbor list 보내주기
+                        
                     }
                     else
                     {
@@ -111,6 +117,13 @@ int main(int argc, char *argv[])
                         printf("%s\n", buf);
                     }
                 }
+            } else {
+                if(i!=serv_sd){
+                    //죽은것으로 판단
+                    printf("Peer %d is dead\n",i);
+                    //update registered list
+                    unregister_neighbor(clnt_adr,&readfds,i);
+                }
             }
         }
     }
@@ -123,6 +136,11 @@ int main(int argc, char *argv[])
 // {
 
 // }
+
+int unregister_neighbor(struct sockaddr_in * peers, fd_set* set, int fd) {
+    FD_CLR(fd,set);
+    peers[fd] = NULL;
+}
 
 void error_handling(char *message)
 {
