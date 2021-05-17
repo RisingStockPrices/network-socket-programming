@@ -17,12 +17,22 @@ int main(int argc, char *argv[])
     int fd_max;
     int activity, strlen;
 	char buf[BUF_SIZE];
-	
+    char message[BUF_SIZE];
+    
 	struct sockaddr_in serv_adr, clnt_adr;
-	socklen_t clnt_adr_sz;
+
+    //list of all peers
+	struct sockaddr_in registeredPeers[MAX_CLIENT];
+	
+    socklen_t clnt_adr_sz;
 
     fd_set readfds;
-	
+
+    if (argc < 2) {
+        printf("Usage: %s <port>", argv[0]);
+        exit(1);
+    }
+ 	
     //client 소켓 초기화
     for (int i=0;i<MAX_CLIENT;i++) {
         clnt_sd[i] = 0;
@@ -56,9 +66,33 @@ int main(int argc, char *argv[])
             {
                 //server socket에서 일어난 일
                 if(i==serv_sd) {
-                    clnt_adr_sz = sizeof(clnt_adr);    
-	                client_sd = accept(serv_sd, (struct sockaddr*)&clnt_adr, &clnt_adr_sz);
+                    clnt_adr_sz = sizeof(clnt_adr[fd_max]);
+                    //incoming peer일때 address 받아옴,,,??   
+	                client_sd = accept(serv_sd, (struct sockaddr*)&clnt_adr[fd_max], &clnt_adr_sz);
                     
+                    //save client address
+
+                    //send neighbor list
+                    if ((strlen = recv(clinet_sd, buf, BUF_SIZE, 0)) == -1) {
+                        error_handling("ERROR: receiving message from peers");
+                    }
+                    strcpy(message, buf);
+
+
+                    printf("%s\n", message);
+                    if (strcmp("ALIVE", message) == 0) {
+                        // update registeredPeeers - 이미 하고 있는 듯? (clnt_adr[] list)
+
+                        // 새로운 neightbor list 보내주기
+                        
+
+                    } else {
+                        error_handling("ERROR: survival from peer");
+                    }
+
+                    send();
+
+
                     FD_SET(client_sd, &readfds);
                     if(fd_max<client_sd)
                     {
@@ -77,12 +111,18 @@ int main(int argc, char *argv[])
                 }
             }
         }
-        
 	}
 	
 	close(serv_sd);
 	return 0;
 } 
+
+int send_neighbor_list(struct sockaddr_in peer, struct sockaddr_in registered, fd_set ) {
+    for ()
+
+    send(peer);
+}
+
 
 void error_handling(char *message)
 {
