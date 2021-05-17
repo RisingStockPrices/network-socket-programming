@@ -13,120 +13,120 @@ int main(int argc, char *argv[])
 {
 
     //각 소켓의 번호
-	int serv_sd, clnt_sd[MAX_CLIENT], client_sd;
+    int serv_sd, client_sd;
     int fd_max;
     int activity, strlen;
-	char buf[BUF_SIZE];
+    char buf[BUF_SIZE];
     char message[BUF_SIZE];
-    
-	struct sockaddr_in serv_adr, clnt_adr;
+
+    struct sockaddr_in serv_adr, clnt_adr[MAX_CLIENT];
 
     //list of all peers
-	struct sockaddr_in registeredPeers[MAX_CLIENT];
-	
+    struct sockaddr_in registeredPeers[MAX_CLIENT];
+
     socklen_t clnt_adr_sz;
 
     fd_set readfds;
 
-    if (argc < 2) {
+    if (argc < 2)
+    {
         printf("Usage: %s <port>", argv[0]);
         exit(1);
     }
- 	
-    //client 소켓 초기화
-    for (int i=0;i<MAX_CLIENT;i++) {
-        clnt_sd[i] = 0;
-    }
-    //소켓 생성
-	serv_sd = socket(PF_INET, SOCK_STREAM, 0);   
-	
-    //server address을 null 로 초기화
-	memset(&serv_adr, 0, sizeof(serv_adr));
-	serv_adr.sin_family = AF_INET;
-	serv_adr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_adr.sin_port = htons(atoi(argv[1]));
-	
 
-	bind(serv_sd, (struct sockaddr*)&serv_adr, sizeof(serv_adr));
-	listen(serv_sd, 10);
+    //소켓 생성
+    serv_sd = socket(PF_INET, SOCK_STREAM, 0);
+
+    //server address을 null 로 초기화
+    memset(&serv_adr, 0, sizeof(serv_adr));
+    serv_adr.sin_family = AF_INET;
+    serv_adr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serv_adr.sin_port = htons(atoi(argv[1]));
+
+    bind(serv_sd, (struct sockaddr *)&serv_adr, sizeof(serv_adr));
+    listen(serv_sd, 10);
 
     FD_ZERO(&readfds);
     //server socket fd에 등록
     FD_SET(serv_sd, &readfds);
     fd_max = serv_sd;
 
-    while(1){
-        if((activity = select(fd_max+1, &readfds, NULL,NULL,NULL))==-1) {
-            print("select error");
+    while (1)
+    {
+        if ((activity = select(fd_max + 1, &readfds, NULL, NULL, NULL)) == -1)
+        {
+            printf("select error");
             break;
         }
 
-        for(int i=0;i<fd_max+1;i++){
-            if(FD_ISSET(i, &readfds))
+        for (int i = 0; i < fd_max + 1; i++)
+        {
+            if (FD_ISSET(i, &readfds))
             {
                 //server socket에서 일어난 일
-                if(i==serv_sd) {
+                if (i == serv_sd)
+                {
                     clnt_adr_sz = sizeof(clnt_adr[fd_max]);
-                    //incoming peer일때 address 받아옴,,,??   
-	                client_sd = accept(serv_sd, (struct sockaddr*)&clnt_adr[fd_max], &clnt_adr_sz);
-                    
+                    //incoming peer일때 address 받아옴,,,??
+                    client_sd = accept(serv_sd, (struct sockaddr *)&clnt_adr[fd_max], &clnt_adr_sz);
+
                     //save client address
 
                     //send neighbor list
-                    if ((strlen = recv(clinet_sd, buf, BUF_SIZE, 0)) == -1) {
+                    if ((strlen = recv(client_sd, buf, BUF_SIZE, 0)) == -1)
+                    {
                         error_handling("ERROR: receiving message from peers");
                     }
                     strcpy(message, buf);
 
-
                     printf("%s\n", message);
-                    if (strcmp("ALIVE", message) == 0) {
+                    if (strcmp("ALIVE", message) == 0)
+                    {
                         // update registeredPeeers - 이미 하고 있는 듯? (clnt_adr[] list)
 
                         // 새로운 neightbor list 보내주기
-                        
-
-                    } else {
+                    }
+                    else
+                    {
                         error_handling("ERROR: survival from peer");
                     }
 
-                    send();
-
-
                     FD_SET(client_sd, &readfds);
-                    if(fd_max<client_sd)
+                    if (fd_max < client_sd)
                     {
                         fd_max = client_sd;
                     }
                 }
-                else {
+                else
+                {
                     //event occured to one of the clients
-                    strlen = read(i,buf,BUF_SIZE);
-                    if(str_len==0){
+                    strlen = read(i, buf, BUF_SIZE);
+                    if (strlen == 0)
+                    {
                         //close reqest??
-                    } else {
+                    }
+                    else
+                    {
                         //생존 신고 보내왔음
-                        printf("%s\n",buf);
+                        printf("%s\n", buf);
                     }
                 }
             }
         }
-	}
-	
-	close(serv_sd);
-	return 0;
-} 
+    }
 
-int send_neighbor_list(struct sockaddr_in peer, struct sockaddr_in registered, fd_set ) {
-    for ()
-
-    send(peer);
+    close(serv_sd);
+    return 0;
 }
 
+// int send_neighbor_list(struct sockaddr_in peer, struct sockaddr_in registered, fd_set)
+// {
+
+// }
 
 void error_handling(char *message)
 {
-	fputs(message, stderr);
-	fputc('\n', stderr);
-	exit(1);
+    fputs(message, stderr);
+    fputc('\n', stderr);
+    exit(1);
 }
