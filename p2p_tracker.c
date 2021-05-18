@@ -25,10 +25,11 @@ int main(int argc, char *argv[])
     struct sockaddr_in serv_adr, peer_list[MAX_CLIENT], neighbors_to_send[MAX_NEIGHBOR], client_adr;
     struct timeval timeout;
 
-
+    
     socklen_t clnt_adr_sz;
 
     fd_set fds;
+
 
     if (argc < 2)
     {
@@ -36,6 +37,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    memset(&peer_list,0,sizeof(peer_list));
     //소켓 생성
     serv_sd = socket(PF_INET, SOCK_STREAM, 0);
 
@@ -46,8 +48,15 @@ int main(int argc, char *argv[])
     serv_adr.sin_port = htons(atoi(argv[1]));
 
     // welcoming socket (최대 10개까지 listen)
-    bind(serv_sd, (struct sockaddr *)&serv_adr, sizeof(serv_adr));
-    listen(serv_sd, 10);
+    if( bind(serv_sd, (struct sockaddr *)&serv_adr, sizeof(serv_adr))==-1){
+        error_handling("bind() error");
+    }
+    
+    // Listen the connection setup request from clients.
+    if (listen(serv_sd, 10) == -1)
+        error_handling("listen() error");
+
+    printf("bind and listen success\n");
 
     // fd table 초기화
     FD_ZERO(&fds);
@@ -103,17 +112,25 @@ int main(int argc, char *argv[])
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
+                    printf("message: %s///\n", message);
+                    memset(&message[5], 0, 1);
+                    printf("message successfully \n");
 
                     if (strcmp("ALIVE", message) == 0)
                     {
                         // 새 nlist 뽑아주기
                         // serialize message
                         // 보냄 : NLIST/(수)/(IP1)/(IP2)/...
-                        send(client_sd, nlist_message, strlen(nlist_message), 0);
-                        // 보내야 할 neighbor 찾기
-                        neighbor_size = get_random_neighbors(i,client_sd, &neighbors_to_send);
 
-                        sprintf(message, "%d/", neighbor_size);
+                        printf("1\n");
+                        //send(i, nlist_message, strlen(nlist_message), 0);
+                        // 보내야 할 neighbor 찾기
+                        printf("2\n");
+                        neighbor_size = get_random_neighbors(i, peer_list, &neighbors_to_send);
+                        printf("3\n");
+                        sprintf(buf, "/%d/", neighbor_size);
+                        strcpy(message, nlist_message);
+                        strcat(message, buf);
                         for (int n = 0; n < neighbor_size; n++) {
                             inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
 
@@ -122,7 +139,9 @@ int main(int argc, char *argv[])
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
                         }
-                        send(client_sd, message, strlen(message), 0);
+                        printf("4\n");
+                        send(i, message, strlen(message), 0);
+                        printf("5\n");
                     }
                     else
                     {
@@ -134,7 +153,7 @@ int main(int argc, char *argv[])
             else
             {
                 //welcoming socket 이 아닌데?? alive message 를 안 보낸다?? -> 죽은 것으로 판단
-                if (i != serv_sd) 
+                if (i != serv_sd && i>2) 
                 {
                     printf("Peer %d is dead\n", i);
                     //update registered list
@@ -165,8 +184,9 @@ int get_random_neighbors(int req_fd, struct sockaddr_in* peers, struct sockaddr_
     int candidate_idx[MAX_CLIENT];
     int idx=-1;
     struct sockaddr_in invalid_addr;
+   
     memset(&invalid_addr,0,sizeof(invalid_addr));
-    
+
     for(int i=0;i<MAX_CLIENT;i++){
         if(i==req_fd)
             continue;

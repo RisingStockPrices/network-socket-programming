@@ -6,58 +6,76 @@
 #include <unistd.h>
 #include <string.h>
 #define BUF_SIZE 100
+#define MAX_NEIGHBOR 3
 
 int get_nlist(int sockfd, struct sockaddr_in *neighbor_list);
 
 int main(int argc, char const *argv[])
 {
-    int serv_sd, client_sd;
+    int serv_sd, client_sd, tracker_sd;
     int fd_max;
     int fd_num, str_len;
     int clnt_adr_sz;
     int neighbor_size;
-    struct sockaddr_in serv_addr, client_adr;
+    struct sockaddr_in serv_addr, client_adr, tracker_addr;
     struct sockaddr_in neighbor_list[3];
 
     char *alive_message = "ALIVE";
     char buffer[BUF_SIZE];
     char *message_type;
     char message[BUF_SIZE];
+    struct timeval timeout;
 
     fd_set fds;
 
-    if (argc != 3)
+    if (argc != 4)
     {
-        printf("Usage: %s <IP> <port>\n", argv[0]);
+        printf("Usage: %s <tracker IP> <tracker port> <own port>\n", argv[0]);
         exit(1);
     }
 
     //소켓 생성
     serv_sd = socket(PF_INET, SOCK_STREAM, 0);
+    tracker_sd = socket(PF_INET, SOCK_STREAM, 0);
 
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
-    serv_addr.sin_port = htons(atoi(argv[2]));
+    serv_addr.sin_port = htons(atoi(argv[3]));
 
-    // connect(sd, (struct sockaddr*)&serv_adr, sizeof(serv_adr));
+    memset(&tracker_addr, 0, sizeof(tracker_addr));
+    tracker_addr.sin_family = AF_INET;
+    tracker_addr.sin_addr.s_addr = inet_addr(argv[1]);
+    tracker_addr.sin_port = htons(atoi(argv[2]));
+
+    int result = connect(tracker_sd, (struct sockaddr*)&tracker_addr, sizeof(tracker_addr));
 
     bind(serv_sd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-    listen(serv_sd, 4);
+    listen(serv_sd, MAX_NEIGHBOR+2);    
 
     // fd table 초기화
     FD_ZERO(&fds);
     FD_SET(serv_sd, &fds);
+    FD_SET(tracker_sd, &fds);
     fd_max = serv_sd;
 
     //TODO: timeout 설정
-
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 1000;
     while (1)
     {
-        if ((fd_num = select(fd_max + 1, &fds, NULL, NULL, NULL)) == -1)
+        sleep(1);
+        send(tracker_sd, alive_message, strlen(alive_message), 0);
+        printf("ALIVE message sent\n");
+
+        if ((fd_num = select(fd_max + 1, &fds, NULL, NULL, &timeout)) == -1)
         {
             printf("select error");
             break;
+        }
+        else if(fd_num==0)
+        {
+            printf("timeout\n");
         }
 
         for (int i = 0; i < (fd_max + 1); i++)
@@ -92,6 +110,7 @@ int main(int argc, char const *argv[])
                         for (int j=0;j<fd_max;j++){
                             if(j!=0 && j!=serv_sd){
                                 FD_CLR(j,&fds);
+                                close(j);
                             }
                         }
                         // update neighbor address list
@@ -125,8 +144,11 @@ int main(int argc, char const *argv[])
                 }
             }
         }
+
+        
     }
 
+    close(tracker_sd);
     close(serv_sd);
     return 0;
 }
