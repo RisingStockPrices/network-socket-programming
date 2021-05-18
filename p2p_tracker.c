@@ -16,9 +16,10 @@ int main(int argc, char *argv[])
     //각 소켓의 번호
     int serv_sd, client_sd;
     int fd_max;
-    int activity, strlen;
+    int activity, str_len;
     char buf[BUF_SIZE];
     char message[BUF_SIZE];
+    char *nlist_message = "NLIST";
 
     struct sockaddr_in serv_adr, clnt_adr[MAX_CLIENT], client_adr;
     struct timeval timeout;
@@ -50,19 +51,19 @@ int main(int argc, char *argv[])
     FD_SET(serv_sd, &readfds);
     fd_max = serv_sd;
 
-
-        timeout.tv_sec = 5;
-        timeout.tv_usec = 5000;
+    timeout.tv_sec = 5;
+    timeout.tv_usec = 5000;
 
     while (1)
     {
-        if ((activity = select(fd_max + 1, &readfds, NULL, NULL, fd_max==serv_sd?NULL:&timeout)) == -1)
+        if ((activity = select(fd_max + 1, &readfds, NULL, NULL, fd_max == serv_sd ? NULL : &timeout)) == -1)
         {
             printf("select error");
             break;
         }
 
-        else if (activity == 0) {
+        else if (activity == 0)
+        {
             printf("No peers requesting!\n");
         }
 
@@ -80,7 +81,7 @@ int main(int argc, char *argv[])
                     //save client address
 
                     //send neighbor list
-                    if ((strlen = recv(client_sd, buf, BUF_SIZE, 0)) == -1)
+                    if ((str_len = recv(client_sd, buf, BUF_SIZE, 0)) == -1)
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
@@ -89,8 +90,12 @@ int main(int argc, char *argv[])
                     printf("%s\n", message);
                     if (strcmp("ALIVE", message) == 0)
                     {
+                        // NLIST/(수)/(IP1)/(IP2)/...
                         // 새로운 neightbor list 보내주기
-                        
+                        send(client_sd, nlist_message, strlen(nlist_message), 0);
+                        // 보내야 할 neighbor 찾기
+                        inet_ntop(AF_INET, &(serv_adr.sin_addr), message, INET_ADDRSTRLEN);
+                        send(client_sd, nlist_message, strlen(nlist_message), 0);
                     }
                     else
                     {
@@ -106,8 +111,8 @@ int main(int argc, char *argv[])
                 else
                 {
                     //event occured to one of the clients
-                    strlen = read(i, buf, BUF_SIZE);
-                    if (strlen == 0)
+                    str_len = read(i, buf, BUF_SIZE);
+                    if (str_len == 0)
                     {
                         //close reqest??
                     }
@@ -117,12 +122,15 @@ int main(int argc, char *argv[])
                         printf("%s\n", buf);
                     }
                 }
-            } else {
-                if(i!=serv_sd){
+            }
+            else
+            {
+                if (i != serv_sd)
+                {
                     //죽은것으로 판단
-                    printf("Peer %d is dead\n",i);
+                    printf("Peer %d is dead\n", i);
                     //update registered list
-                    unregister_neighbor(clnt_adr,&readfds,i);
+                    unregister_neighbor(clnt_adr, &readfds, i);
                 }
             }
         }
@@ -137,9 +145,10 @@ int main(int argc, char *argv[])
 
 // }
 
-int unregister_neighbor(struct sockaddr_in * peers, fd_set* set, int fd) {
-    FD_CLR(fd,set);
-    peers[fd] = NULL;
+int unregister_neighbor(struct sockaddr_in *peers, fd_set *set, int fd)
+{
+    FD_CLR(fd, set);
+    memset(&peers[fd], 0, sizeof(peers[fd]));
 }
 
 void error_handling(char *message)
