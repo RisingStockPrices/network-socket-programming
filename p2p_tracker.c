@@ -18,6 +18,7 @@ int main(int argc, char *argv[])
     int fd_max;
     int fd_num, str_len;
     int neighbor_size;
+    char temp[BUF_SIZE];
     char buf[BUF_SIZE];
     char message[BUF_SIZE];
     char *nlist_message = "NLIST";
@@ -63,13 +64,13 @@ int main(int argc, char *argv[])
     FD_SET(serv_sd, &fds);
     fd_max = serv_sd;
 
-    timeout.tv_sec = 5;
+    timeout.tv_sec = 50;
     timeout.tv_usec = 5000;
 
     while (1)
     {
         // select: fd table 에 등록된 애들 중 event 생긴 socket 수 return
-        if ((fd_num = select(fd_max + 1, &fds, NULL, NULL, fd_max == serv_sd ? NULL : &timeout)) == -1)
+        if ((fd_num = select(fd_max + 1, &fds, NULL, NULL, NULL) == -1))
         {
             printf("select error");
             break;
@@ -94,7 +95,8 @@ int main(int argc, char *argv[])
                     client_sd = accept(serv_sd, (struct sockaddr *)&client_adr, &clnt_adr_sz);
                     inet_ntop(AF_INET, &(client_adr.sin_addr), buf, INET_ADDRSTRLEN);
                     
-                    printf("Welcome! %s\n", buf);
+
+                    printf("Welcome! %s %d\n", buf, client_adr.sin_port);
                     //save client address to peer list
                     peer_list[client_sd] = client_adr;
 
@@ -114,7 +116,6 @@ int main(int argc, char *argv[])
                     }
                     printf("message: %s///\n", message);
                     memset(&message[5], 0, 1);
-                    printf("message successfully \n");
 
                     if (strcmp("ALIVE", message) == 0)
                     {
@@ -122,42 +123,33 @@ int main(int argc, char *argv[])
                         // serialize message
                         // 보냄 : NLIST/(수)/(IP1)/(IP2)/...
 
-                        printf("1\n");
-                        //send(i, nlist_message, strlen(nlist_message), 0);
-                        // 보내야 할 neighbor 찾기
-                        printf("2\n");
+                    
                         neighbor_size = get_random_neighbors(i, peer_list, &neighbors_to_send);
-                        printf("3\n");
+                        
+                        printf("neighbor size is %d\n",neighbor_size);
                         sprintf(buf, "/%d/", neighbor_size);
                         strcpy(message, nlist_message);
                         strcat(message, buf);
                         for (int n = 0; n < neighbor_size; n++) {
                             inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
+                            sprintf(temp, "/%d", neighbors_to_send[n].sin_port);
+                            strcat(buf, temp);
 
-                            printf("%s\n",buf);
+                            printf("neighbor [%d]: %s\n",n, buf);
 
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
                         }
-                        printf("4\n");
-                        send(i, message, strlen(message), 0);
-                        printf("5\n");
+                        printf("message: %s\n", message);
+                        str_len = send(i, message, sizeof(message), 0);
+                        printf("string length: %d\n",str_len);
+                       
                     }
                     else
                     {
                         // invalid message
                         error_handling("ERROR: survival from peer");
                     }
-                }
-            }
-            else
-            {
-                //welcoming socket 이 아닌데?? alive message 를 안 보낸다?? -> 죽은 것으로 판단
-                if (i != serv_sd && i>2) 
-                {
-                    printf("Peer %d is dead\n", i);
-                    //update registered list
-                    unregister_neighbor(peer_list, &fds, i);
                 }
             }
         }
@@ -198,17 +190,14 @@ int get_random_neighbors(int req_fd, struct sockaddr_in* peers, struct sockaddr_
     shuffle(candidate_idx,idx+1);
     
     printf("Debugging... print randomized candidates idx\n");
-    for(int i=0;i<idx;i++){
+    for(int i=0;i<=idx;i++){
         printf("%d ",candidate_idx[i]);
     }
-    printf("\nReturning total %d neighbors\n",idx);
-
     //set first N elements in <neighbors>
-    for(int i=0;i<(idx+1>MAX_NEIGHBOR)?MAX_NEIGHBOR:idx+1;i++){
+    for(int i=0;i<((idx+1>MAX_NEIGHBOR)?MAX_NEIGHBOR:(idx+1));i++){
         neighbors[i] = peers[candidate_idx[i]];
     }
-
-    return idx;
+    return idx+1;
 }
 
 
