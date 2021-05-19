@@ -7,8 +7,8 @@
 #include <string.h>
 #define BUF_SIZE 100
 #define MAX_NEIGHBOR 3
-#define MAX_CHUNK_NUMBER 10
-#define CHUNK_SIZE 8
+#define FILE_COUNT 3
+#define FILE_SIZE 8
 
 void encode_message(char *message, char *type);
 int get_nlist(int sockfd, char *message, struct sockaddr_in *neighbor_list);
@@ -40,36 +40,31 @@ int main(int argc, char const *argv[])
     char message[BUF_SIZE];
     struct timeval timeout;
 
-    char chunk_offset_list[MAX_CHUNK_NUMBER];
-    char data_list[MAX_CHUNK_NUMBER][CHUNK_SIZE];
-    int received_chunk_count = 0;
+    //char *filenames[3] = {"1.txt", "2.txt", "3.txt"};
+    char has_file[3];
+    //char chunk_offset_list[MAX_CHUNK_NUMBER];
+    char data_list[FILE_COUNT][FILE_SIZE];
+    //int received_chunk_count = 0;
     fd_set fds, cpy_fds;
 
-    if ((file = fopen(temp_filename, "rb")) != NULL)
+    int i = 0;
+    printf("starting fopen()\n");
+    //for (int i = 0; i < FILE_COUNT; i++) {
+    FILE *fp = fopen(temp_filename, "rb");
+    if (fp != NULL)
     {
-        // 다 있는 걸로 CHUNK_OFFSET_LIST 췤
-        for (int i = 0; i < MAX_CHUNK_NUMBER; i++)
-        {
-            chunk_offset_list[i] = 1;
-        }
-
-        for (int i = 0; i < MAX_CHUNK_NUMBER; i++)
-        {
-            memset(data_list[i], 0, CHUNK_SIZE);
-            offset = fread(data_list[i], 1, CHUNK_SIZE, file);
-            //printf("offset: %d / content: %s\n", offset, data_list[i]);
-        }
-        received_chunk_count = MAX_CHUNK_NUMBER;
+        printf("d");
+        // fread(data_list[i], sizeof(char), FILE_SIZE, file);
+        has_file[i] = 1;
+        //printf("Has file %s\n", filenames[i]);
         fclose(file);
     }
     else
     {
-        // 파일 없으므로 CHUNK_OFFSET_LIST 0으로 초기화
-        for (int i = 0; i < MAX_CHUNK_NUMBER; i++)
-        {
-            chunk_offset_list[i] = 0;
-        }
+        printf("dss");
+        has_file[i] = 0;
     }
+    //}
 
     if (argc != 4)
     {
@@ -97,8 +92,8 @@ int main(int argc, char const *argv[])
     connect(tracker_sd, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
     strcat(alive_message, argv[3]);
 
-
-    do {
+    do
+    {
         printf("==================================\n");
         printf("Do you want to start downloading?\n");
         printf(" 1: Yes\n");
@@ -107,17 +102,20 @@ int main(int argc, char const *argv[])
         printf(" Choice: ");
         // scanf("%d", &user_input);
         user_input = 1;
-        if (user_input == 2) {
+        if (user_input == 2)
+        {
             printf("Finish P2P!\n");
             // send(tracker_sd, close_message, sizeof(close_message), 0);
             close(tracker_sd);
             close(serv_sd);
             return 0;
-        } else if (user_input == 1) {
+        }
+        else if (user_input == 1)
+        {
             send(tracker_sd, alive_message, sizeof(alive_message), 0);
             printf("Sent ALIVE message to tracker\n");
         }
-    } while((user_input != 1) && (user_input != 2));
+    } while ((user_input != 1) && (user_input != 2));
 
     // send(tracker_sd, alive_message, sizeof(alive_message), 0);
     // printf("ALIVE message sent\n");
@@ -158,7 +156,7 @@ int main(int argc, char const *argv[])
                     if (fd_max < client_sd)
                         fd_max = client_sd;
                 }
-                else if(i>2)
+                else
                 {
                     //read message
                     if ((str_len = recv(i, buffer, sizeof(buffer), 0)) == -1)
@@ -201,8 +199,8 @@ int main(int argc, char const *argv[])
                             strcpy(message, lrqst_message);
                             send(neighbor_sd[j], message, sizeof(message), 0);
                             //printf("Sent LRQST message to socket fd %d\n", neighbor_sd[j]);
-                            memset(&buffer, 0, sizeof(buffer));
-                            memset(&message, 0, sizeof(message));
+                            memset(buffer, 0, sizeof(buffer));
+                            memset(message, 0, sizeof(message));
                         }
                     }
                     else if (startsWith("LRQST", buffer) == 1)
@@ -212,9 +210,9 @@ int main(int argc, char const *argv[])
                         //printf("Received LRQST message\n");
                         strcpy(message, lresp_message);
                         char tmp[5];
-                        for (int k = 0; k < MAX_CHUNK_NUMBER; k++)
+                        for (int k = 0; k < FILE_COUNT; k++)
                         {
-                            if (chunk_offset_list[k] == 1)
+                            if (has_file[k] == 1)
                             {
                                 sprintf(tmp, "%d/", k);
                                 strcat(message, tmp);
@@ -250,7 +248,7 @@ int main(int argc, char const *argv[])
 
                             chunk_offset = atoi(temp);
                             //printf("%d %s\n", chunk_offset, temp);
-                            if (chunk_offset_list[chunk_offset] != 1)
+                            if (has_file[chunk_offset] != 1)
                             {
                                 memset(temp, 0, sizeof(temp));
                                 sprintf(temp, "/%d", chunk_offset);
@@ -274,7 +272,7 @@ int main(int argc, char const *argv[])
                         strcat(message, "/");
                         strcat(message, data_list[chunk_offset]);
 
-                        printf("Sent DRQST message sized %d\n", send(i, message, sizeof(message), 0));
+                        send(i, message, sizeof(message), 0);
                     }
                     else if (startsWith("DRESP", buffer) == 1)
                     {
@@ -282,11 +280,12 @@ int main(int argc, char const *argv[])
                         strcpy(buffer, &buffer[6]);
                         offset = atoi(strtok(buffer, "/"));
                         temp = strtok(NULL, "/");
-                        strcpy(data_list[offset], temp);
-                        chunk_offset_list[offset] = 1;
-                        received_chunk_count++;
-                        printf("[RECEIVED CHUNK No. %d] Progress: [%d/%d]\n", offset,received_chunk_count,MAX_CHUNK_NUMBER);
 
+                        strcpy(data_list[offset], temp);
+                        has_file[offset] = 1;
+                        //file = fopen(filenames[offset], "wb");
+                        fwrite(data_list[offset], sizeof(char), FILE_SIZE, file);
+                        printf("[RECEIVED FILE No. %d]\n", offset);
                     }
                     else
                     {
