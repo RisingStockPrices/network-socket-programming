@@ -72,7 +72,6 @@ int main(int argc, char const *argv[])
     tracker_addr.sin_addr.s_addr = inet_addr(argv[1]);
     tracker_addr.sin_port = htons(atoi(argv[2]));
 
-    bind(tracker_sd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
     connect(tracker_sd, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
 
     bind(serv_sd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
