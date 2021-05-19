@@ -12,6 +12,7 @@
 #define TIME_OUT 1000
 void error_handling(char *message);
 
+int startsWith(const char *pre, const char *str);
 int main(int argc, char *argv[])
 {
     int serv_sd, client_sd;
@@ -29,7 +30,7 @@ int main(int argc, char *argv[])
     
     socklen_t clnt_adr_sz;
 
-    fd_set fds;
+    fd_set fds, cpy_fds;
 
 
     if (argc < 2)
@@ -69,8 +70,9 @@ int main(int argc, char *argv[])
 
     while (1)
     {
+        cpy_fds = fds;
         // select: fd table 에 등록된 애들 중 event 생긴 socket 수 return
-        if ((fd_num = select(fd_max + 1, &fds, NULL, NULL, NULL) == -1))
+        if ((fd_num = select(fd_max + 1, &cpy_fds, NULL, NULL, NULL) == -1))
         {
             printf("select error");
             break;
@@ -83,7 +85,7 @@ int main(int argc, char *argv[])
         // fd table 돌면서 event 생겼는지 확인
         for (int i = 0; i < fd_max + 1; i++)
         {
-            if (FD_ISSET(i, &fds))
+            if (FD_ISSET(i, &cpy_fds))
             {
                 //welcoming socket에서 생긴 event
                 if (i == serv_sd)
@@ -115,15 +117,20 @@ int main(int argc, char *argv[])
                         error_handling("ERROR: receiving message from peers");
                     }
                     printf("message: %s///\n", message);
-                    memset(&message[5], 0, 1);
+                    //memset(&message[5], 0, 1);
 
-                    if (strcmp("ALIVE", message) == 0)
+                    if (startsWith("ALIVE", message) == 1) //strcmp("ALIVE", message) == 0)
                     {
+                        strcpy(message, &message[5]);
+                        peer_list[i].sin_port = htons(atoi(message));
                         // 새 nlist 뽑아주기
                         // serialize message
                         // 보냄 : NLIST/(수)/(IP1)/(IP2)/...
 
-                    
+                        // 새 nlist 뽑아주기
+                        // serialize message
+                        // 보냄 : NLIST/(수)/(IP1)/(IP2)/...
+
                         neighbor_size = get_random_neighbors(i, peer_list, &neighbors_to_send);
                         
                         printf("neighbor size is %d\n",neighbor_size);
@@ -140,15 +147,16 @@ int main(int argc, char *argv[])
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
                         }
-                        printf("message: %s\n", message);
+                        //printf("message: %s\n", message);
                         str_len = send(i, message, sizeof(message), 0);
-                        printf("string length: %d\n",str_len);
+                        //printf("string length: %d\n",str_len);
                        
                     }
                     else
                     {
+                        printf("invalid message\n");
                         // invalid message
-                        error_handling("ERROR: survival from peer");
+                        //error_handling("ERROR: survival from peer");
                     }
                 }
             }
@@ -159,6 +167,13 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+int startsWith(const char *pre, const char *str)
+{
+    if (strncmp(pre, str, strlen(pre)) == 0)
+        return 1;
+    else
+        return 0;
+}
 // 배열을 섞는 함수 
 void shuffle(int *arr, int num) { 
     srand(time(NULL)); 
