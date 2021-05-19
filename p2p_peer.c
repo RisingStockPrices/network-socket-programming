@@ -25,7 +25,7 @@ int main(int argc, char const *argv[])
     char alive_message[BUF_SIZE] = "ALIVE";
     char *lrqst_message = "LRQST";
     char *drqst_message = "DRQST";
-    char *sresp_message = "LRESP";
+    char *lresp_message = "LRESP/";
     char *dresp_message = "DRESP";
     char *temp_filename = "happy.txt";
     FILE* file;
@@ -43,10 +43,16 @@ int main(int argc, char const *argv[])
     if((file = fopen(temp_filename,"r")!=NULL))
     {
         // 다 있는 걸로 CHUNK_OFFSET_LIST 췤
-        memset(&chunk_offset_list, 1, sizeof(chunk_offset_list));
+        for(int i=0;i<MAX_CHUNK_NUMBER;i++){
+            chunk_offset_list[i] = 1;
+        }
+        //memset(&chunk_offset_list, 1, sizeof(chunk_offset_list));
     } else {
         // 파일 없으므로 CHUNK_OFFSET_LIST 0으로 초기화
-        memset(&chunk_offset_list, 0, sizeof(chunk_offset_list));
+        for(int i=0;i<MAX_CHUNK_NUMBER;i++){
+            chunk_offset_list[i] = 0;
+        }
+        //memset(&chunk_offset_list, 0, sizeof(chunk_offset_list));
     }
 
     
@@ -73,17 +79,18 @@ int main(int argc, char const *argv[])
     bind(serv_sd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
     listen(serv_sd, MAX_NEIGHBOR+2);    
 
+
     connect(tracker_sd, (struct sockaddr*)&tracker_addr, sizeof(tracker_addr));
 
+    strcat(alive_message, argv[3]);
+    send(tracker_sd, alive_message, sizeof(alive_message), 0);
+    printf("ALIVE message sent\n");
+    
     // fd table 초기화
     FD_ZERO(&fds);
     FD_SET(serv_sd, &fds);
     FD_SET(tracker_sd, &fds);
     fd_max = tracker_sd;
-
-    strcat(alive_message, argv[3]);
-    printf("%d\n",send(tracker_sd, alive_message, sizeof(alive_message), 0));
-    printf("ALIVE message sent\n");
 
     while (1)
     {
@@ -127,89 +134,50 @@ int main(int argc, char const *argv[])
                     if(startsWith("NLIST",buffer)==1){
                         strcpy(buffer,&buffer[6]);
 
-
                         for(int j=0;j<neighbor_size;j++){
                             FD_CLR(neighbor_sd[j],&fds);
                             close(neighbor_sd[j]);
                         }
                         
                         // DECODE MESSAGE
-                        neighbor_size = get_nlist(i,buffer, neighbor_list);
-
+                        neighbor_size = get_nlist(tracker_sd,buffer, neighbor_list);
+                        
                         for (int j=0; j<neighbor_size; j++) {
                             neighbor_sd[j] = socket(PF_INET, SOCK_STREAM, 0);
 
-                            if (connect(neighbor_sd[j], (struct sockaddr*)&neighbor_list[j], sizeof(neighbor_list[j])) == -1) {
+                            if (connect(neighbor_sd[j], (struct sockaddr*)&(neighbor_list[j]), sizeof(neighbor_list[j])) == -1) {
                                 // 받은 neighbor랑 연결이 안되면?
                                 printf("failed to connect\n");
                             }
-
-
-                            //printf("success if no fail message\n");
-                            //FD_SET(neighbor_sd[j],&fds);
+\
+                            FD_SET(neighbor_sd[j],&fds);
                             // neighbor에게 LRQST 요청
-                            //printf("reaches here\n");
-                            //strcpy(message, lrqst_message);
-                            //send(neighbor_sd[j], message, sizeof(message), 0);
-                            //printf("Sent LRQST message to socket fd %d\n",neighbor_sd[j]);
-                        }
-                    }
-                    /*
-                    strcpy(message, buffer);
-
-                    message_type = strtok(message, "/");
-                   // printf("message_type: %s\n", message_type);
-                    
-                    // tracker가 neighbor list를 보내줌 : type == NLIST ?
-                    if (strcmp(message_type,"NLIST")==0)
-                    {
-                        // parse message
-                        neighbor_size = get_nlist(i, strtok(NULL, ""), neighbor_list);
-
-                        // update fd table (reset)
-                        for (int j=0;j<fd_max;j++){
-                            if(j!=0 && j!=serv_sd){
-                                FD_CLR(j,&fds);
-                                close(j);
-                            }
-                        }
-                        for (int j=0; j<neighbor_size; j++) {
-                            neighbor_sd[j] = socket(PF_INET, SOCK_STREAM, 0);
                             
-                            
-                            if (connect(neighbor_sd[j], (struct sockaddr*)&neighbor_list[j], sizeof(neighbor_list[j])) == -1) {
-                                // 받은 neighbor랑 연결이 안되면?
-                            }
-
-                            // neighbor에게 LRQST 요청
                             strcpy(message, lrqst_message);
                             send(neighbor_sd[j], message, sizeof(message), 0);
                             printf("Sent LRQST message to socket fd %d\n",neighbor_sd[j]);
-                        }                       
+                        }
                     }
-                    // neighbor가 보유 chunk 목록을 요청 : type == CRQST ?
-                    else if (strcmp(message_type,"LRQST")==0) {
-                        printf("Received LRQST message from %s %d", neighbor_list[i].sin_addr, neighbor_list[i].sin_port);
+                    else if(startsWith("LRQST",buffer)==1){
                         // 소유 chunk offset list를 serialize
                         // 메시지 format: LRESP/(ofset1)/(offset2)/../(마지막 offset)///
-                        memset(&buffer,0, sizeof(buffer));
-                        sprintf(buffer,"LRESP/");
-                        for(int i=0;i<MAX_CHUNK_NUMBER;i++){
-                            if(chunk_offset_list[i]==1)
-                                sprintf(buffer,"%d/",i);
+                        strcpy(message, lresp_message);
+                        char tmp[5];
+                        for(int k=0;k<MAX_CHUNK_NUMBER;k++){
+                            if(chunk_offset_list[k]==1){
+                                sprintf(tmp,"%d/",k);
+                                strcat(message,tmp);
+                            }
                         }
-                        sprintf(buffer,"//");
-                        send(i, buffer,sizeof(buffer), 0);
-                        printf("Sent LRESP message to %s %d", neighbor_list[i].sin_addr, neighbor_list[i].sin_port);
+                        strcat(message,"//");
+                        printf("message to be sent is : %s", message);
+                        send(i, message,sizeof(buffer), 0);
+                        printf("Sent LRESP message\n");
                         // serialized된 list를 neighbor에 보내기
                     }
-                    // neighbor가 특정 chunk 데이터를 요청 : type == DRQST ?
-                    else if (strcmp(message_type, "DRQST")==0){
-                        
-                    }
-                    // neighbor가 chunk 데이터 목록을 응답해옴 : type == LRESP ?
-                    else if (strcmp(message_type, "LRESP")==0){
+                    else if (startsWith("LRESP", buffer)==1){
                         // parse list
+                        printf("Received LRQST message\n");
                         strtok(message,"/");
                         do{
                             temp = strtok(NULL, "/");
@@ -220,14 +188,15 @@ int main(int argc, char const *argv[])
                         //sprintf(buffer,"DRQST/");
                         //request data
                     }
-                    // neighbor가 요청한 데이터를 응답해옴 : type == DRESP ?
-                    else if (strcmp(message_type, "DRESP")==0){
+                    else if (startsWith("DRQST", buffer)==1){
+                        
+                    }
+                    else if (startsWith("DRESP", buffer)==1){
                         
                     }
                     else {
-                        printf("invalid message\n");
-                        //error_handling("ERROR: survival from peer");
-                    } */ 
+                        error_handling("ERROR: unknown command");
+                    } 
                 }
             }
         }
@@ -251,11 +220,16 @@ int get_nlist(int sockfd, char* message, struct sockaddr_in *neighbor_list) {
     neighbor_size = atoi(buf);
     //printf("neighbor size: %d\n", neighbor_size);
     for (n = 0; n < neighbor_size; n++) {
+        memset(&neighbor_list[n],0,sizeof(neighbor_list[n]));
+        neighbor_list[n].sin_family = AF_INET;
+
         buf = strtok(NULL, "/");
         //printf("neighbor[%d]: %s\n", n, buf);
+        
         inet_pton(AF_INET, buf, &(neighbor_list[n].sin_addr));
         buf = strtok(NULL, "/");
-        neighbor_list[n].sin_port = atoi(buf);
+        neighbor_list[n].sin_port = htons(atoi(buf));
+        //inet_pton(AF_INET, buf, &(neighbor_list[n].sin_port));
     }
 
     return neighbor_size;
