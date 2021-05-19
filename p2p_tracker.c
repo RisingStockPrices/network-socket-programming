@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
-                    printf("Received message from socket %d: %s\n", i, message);
+                    printf("Received message : %s\n", message);
 
                     if (startsWith("ALIVE", message) == 1)
                     {
@@ -142,48 +142,12 @@ int main(int argc, char *argv[])
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
                         }
-                        //printf("message: %s\n", message);
                         send(i, message, sizeof(message), 0);
-                        //printf("string length: %d\n",str_len);
-                    }
-                    /*
-                   
-                    if (startsWith("ALIVE", message) == 1) //strcmp("ALIVE", message) == 0)
-                    {
-                        strcpy(message, &message[5]);
-                        peer_list[i].sin_port = htons(atoi(message));
-                        // 새 nlist 뽑아주기
-                        // serialize message
-                        // 보냄 : NLIST/(수)/(IP1)/(IP2)/...
-                        // 새 nlist 뽑아주기
-                        // serialize message
-                        // 보냄 : NLIST/(수)/(IP1)/(IP2)/...
-                        neighbor_size = get_random_neighbors(i, peer_list, &neighbors_to_send);
-                        
-                        printf("neighbor size is %d\n",neighbor_size);
-                        sprintf(buf, "/%d/", neighbor_size);
-                        strcpy(message, nlist_message);
-                        strcat(message, buf);
-                        for (int n = 0; n < neighbor_size; n++) {
-                            inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
-                            sprintf(temp, "/%d", ntohs(neighbors_to_send[n].sin_port));
-                            strcat(buf, temp);
-                            printf("neighbor [%d]: %s\n",n, buf);
-                            strcat(message, buf);
-                            strcat(message, n == (neighbor_size - 1) ? "" : "/");
-                        }
-                        //printf("message: %s\n", message);
-                        str_len = send(i, message, sizeof(message), 0);
-                        //printf("string length: %d\n",str_len);
-                       
                     }
                     else
                     {
                         printf("invalid message\n");
-                        // invalid message
-                        //error_handling("ERROR: survival from peer");
                     }
-                    */
                 }
             }
         }

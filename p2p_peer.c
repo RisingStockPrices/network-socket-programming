@@ -7,9 +7,10 @@
 #include <string.h>
 #define BUF_SIZE 100
 #define MAX_NEIGHBOR 3
-#define MAX_CHUNK_NUMBER 100
-#define CHUNK_SIZE 32
+#define MAX_CHUNK_NUMBER 10
+#define CHUNK_SIZE 8
 
+void encode_message(char *message, char *type);
 int get_nlist(int sockfd, char *message, struct sockaddr_in *neighbor_list);
 void error_handling(char *message);
 int startsWith(const char *pre, const char *str);
@@ -20,7 +21,8 @@ int main(int argc, char const *argv[])
     int fd_max;
     int fd_num, str_len;
     int clnt_adr_sz;
-    int neighbor_size;
+    int chunk_offset, offset;
+    int neighbor_size = 0;
     struct sockaddr_in serv_addr, client_adr, tracker_addr;
     struct sockaddr_in neighbor_list[3];
 
@@ -38,27 +40,35 @@ int main(int argc, char const *argv[])
     struct timeval timeout;
 
     char chunk_offset_list[MAX_CHUNK_NUMBER];
-    char *data_list[MAX_CHUNK_NUMBER];
+    char data_list[MAX_CHUNK_NUMBER][CHUNK_SIZE];
 
     fd_set fds, cpy_fds;
 
-    if ((file = fopen(temp_filename, "r") != NULL))
+    if ((file = fopen(temp_filename, "rb")) != NULL)
     {
         // 다 있는 걸로 CHUNK_OFFSET_LIST 췤
         for (int i = 0; i < MAX_CHUNK_NUMBER; i++)
         {
             chunk_offset_list[i] = 1;
         }
-        //memset(&chunk_offset_list, 1, sizeof(chunk_offset_list));
+
+        for (int i = 0; i < MAX_CHUNK_NUMBER; i++)
+        {
+            memset(data_list[i], 0, CHUNK_SIZE);
+            offset = fread(data_list[i], 1, CHUNK_SIZE, file);
+            printf("offset: %d / content: %s\n", offset, data_list[i]);
+        }
+
+        fclose(file);
     }
     else
     {
+        printf("hi\n");
         // 파일 없으므로 CHUNK_OFFSET_LIST 0으로 초기화
         for (int i = 0; i < MAX_CHUNK_NUMBER; i++)
         {
             chunk_offset_list[i] = 0;
         }
-        //memset(&chunk_offset_list, 0, sizeof(chunk_offset_list));
     }
 
     if (argc != 4)
@@ -96,6 +106,7 @@ int main(int argc, char const *argv[])
     FD_SET(tracker_sd, &fds);
     fd_max = tracker_sd;
 
+    //memset(&buffer, 0, sizeof(buffer));
     while (1)
     {
         cpy_fds = fds;
@@ -112,7 +123,6 @@ int main(int argc, char const *argv[])
 
         for (int i = 0; i < (fd_max + 1); i++)
         {
-
             if (FD_ISSET(i, &cpy_fds))
             {
                 //printf("fd %d is set\n", i);
@@ -160,17 +170,24 @@ int main(int argc, char const *argv[])
                             }
 
                             FD_SET(neighbor_sd[j], &fds);
+                            if (fd_max < neighbor_sd[j])
+                            {
+                                fd_max = neighbor_sd[j];
+                            }
                             // neighbor에게 LRQST 요청
 
                             strcpy(message, lrqst_message);
                             send(neighbor_sd[j], message, sizeof(message), 0);
                             printf("Sent LRQST message to socket fd %d\n", neighbor_sd[j]);
+                            memset(&buffer, 0, sizeof(buffer));
+                            memset(&message, 0, sizeof(message));
                         }
                     }
                     else if (startsWith("LRQST", buffer) == 1)
                     {
                         // 소유 chunk offset list를 serialize
                         // 메시지 format: LRESP/(ofset1)/(offset2)/../(마지막 offset)///
+                        printf("Received LRQST message\n");
                         strcpy(message, lresp_message);
                         char tmp[5];
                         for (int k = 0; k < MAX_CHUNK_NUMBER; k++)
@@ -184,29 +201,71 @@ int main(int argc, char const *argv[])
                         strcat(message, "//");
                         printf("message to be sent is : %s", message);
                         send(i, message, sizeof(buffer), 0);
-                        printf("Sent LRESP message\n");
+                        printf("\nSent LRESP message\n");
                         // serialized된 list를 neighbor에 보내기
                     }
                     else if (startsWith("LRESP", buffer) == 1)
                     {
                         // parse list
-                        printf("Received LRQST message\n");
-                        strtok(message, "/");
-                        do
+                        printf("Received LRESP message\n");
+                        // strcpy(buffer, &buffer[5]);
+                        strcpy(message, drqst_message);
+
+                        // 하나씩 읽어들이면서 자기한테 없는거면?
+                        //DRQST 보내기 ("DRQST/(offset)")
+                        temp = strtok(buffer, "/");
+                        printf("Start searching chunks...\n");
+                        while (1)
                         {
                             temp = strtok(NULL, "/");
-                            printf("%d\n", temp);
-                        } while (strcmp(temp, "/") != 0);
+                            printf("chunk: %s / buffer: %s\n", temp, buffer);
+                            // printf("%s\n", temp);
+                            if (temp == NULL)
+                            {
+                                printf("End searching chunks!\n");
+                                break;
+                            }
 
-                        //memset(&buffer,0, sizeof(buffer));
-                        //sprintf(buffer,"DRQST/");
-                        //request data
+                            chunk_offset = atoi(temp);
+                            //printf("%d %s\n", chunk_offset, temp);
+                            if (chunk_offset_list[chunk_offset] != 1)
+                            {
+                                memset(temp, 0, sizeof(temp));
+                                sprintf(temp, "/%d", chunk_offset);
+                                strcat(message, temp);
+                                printf("DREQST Sent - offset: %d to %d\n", chunk_offset, i);
+                                printf("return value of send(): %ld\n", send(i, message, BUF_SIZE, 0));
+                                break;
+                            }
+                        }
                     }
                     else if (startsWith("DRQST", buffer) == 1)
                     {
+                        printf("Received DRQST message\n");
+                        strcpy(buffer, &buffer[6]);
+                        strcpy(message, dresp_message);
+                        // 해당 chunk data 보내주기
+                        temp = strtok(buffer, "/");
+                        chunk_offset = atoi(temp);
+                        strcat(message, "/");
+                        strcat(message, temp);
+                        strcat(message, "/");
+                        strcat(message, data_list[chunk_offset]);
+
+                        printf("Sent DRQST message sized %d\n", send(i, message, sizeof(message), 0));
                     }
                     else if (startsWith("DRESP", buffer) == 1)
                     {
+                        printf("Received DRESP message\n");
+                        strcpy(buffer, &buffer[6]);
+                        // strtok(buffer, "/");
+                        printf("%s\n", buffer);
+                        offset = atoi(strtok(buffer, "/"));
+                        temp = strtok(NULL, "/");
+                        strcpy(data_list[offset], temp);
+                        printf("[Saved Data!!] offset %d\ntext: %s\n", offset, data_list[offset]);
+
+                        chunk_offset_list[offset] = 1;
                     }
                     else
                     {
@@ -220,6 +279,52 @@ int main(int argc, char const *argv[])
     close(tracker_sd);
     close(serv_sd);
     return 0;
+}
+
+/* Decodes Message*/
+void decode_message(char *buffer)
+{
+    //strtok
+}
+
+/*
+    Encodes messages exchanged between peers
+    4 TYPES of messages: LRQST, DRQST, LRESP, DRESP
+*/
+void encode_message(char *message, char *type)
+{
+    strcpy(message, type);
+
+    if (strcmp(type, "LRQST"))
+    {
+        /*
+        MESSAGE FORMAT: "LRQST/end/"
+        */
+    }
+    else if (strcmp(type, "DRQST"))
+    {
+        /*
+        MESSAGE FORMAT: "DRQST/[chunk-offset]/end/"
+        */
+    }
+    else if (strcmp(type, "LRESP"))
+    {
+        /*
+        LRESP: chunk offset list response message
+        -> returns a list of all chunk offsets the peer currently has
+        MESSAGE FORMAT: "LRESP/[chunk-offset-1]/[chunk-offset-2]/.../end/"
+        */
+    }
+    else if (strcmp(type, "DRESP"))
+    {
+        /*
+        DRESP: data response message
+        -> returns data of the specified chunk offset
+        MESSAGE FORMAT: "DRESP/[chunk-offset]/[data]/end/"
+        */
+    }
+
+    strcpy(message, "/end/");
 }
 
 int get_nlist(int sockfd, char *message, struct sockaddr_in *neighbor_list)
