@@ -6,7 +6,7 @@
 #include <sys/socket.h>
 #include <time.h>
 
-#define BUF_SIZE 30
+#define BUF_SIZE 100
 #define MAX_CLIENT 10
 #define MAX_NEIGHBOR 3
 #define TIME_OUT 1000
@@ -116,9 +116,36 @@ int main(int argc, char *argv[])
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
-                    printf("message: %s///\n", message);
-                    //memset(&message[5], 0, 1);
+                    printf("Received message from socket %d: %s\n", i, message);
 
+                    if(startsWith("ALIVE",message)==1){
+                        strcpy(message,&message[5]);
+                        
+                        peer_list[i].sin_port = htons(atoi(message));
+
+                        neighbor_size = get_random_neighbors(i, peer_list, &neighbors_to_send);
+                        
+                        // ENCODE MESSAGE
+                        sprintf(buf, "/%d/", neighbor_size);
+                        strcpy(message, nlist_message);
+                        strcat(message, buf);
+                        for (int n = 0; n < neighbor_size; n++) {
+                            inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
+                            sprintf(temp, "/%d", ntohs(neighbors_to_send[n].sin_port));
+                            strcat(buf, temp);
+
+                            printf("neighbor [%d]: %s\n",n, buf);
+
+                            strcat(message, buf);
+                            strcat(message, n == (neighbor_size - 1) ? "" : "/");
+                        }
+                        //printf("message: %s\n", message);
+                        send(i, message, sizeof(message), 0);
+                        //printf("string length: %d\n",str_len);
+                       
+                    }
+                    /*
+                   
                     if (startsWith("ALIVE", message) == 1) //strcmp("ALIVE", message) == 0)
                     {
                         strcpy(message, &message[5]);
@@ -158,6 +185,7 @@ int main(int argc, char *argv[])
                         // invalid message
                         //error_handling("ERROR: survival from peer");
                     }
+                    */
                 }
             }
         }

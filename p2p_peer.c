@@ -82,7 +82,7 @@ int main(int argc, char const *argv[])
     fd_max = tracker_sd;
 
     strcat(alive_message, argv[3]);
-    send(tracker_sd, alive_message, sizeof(alive_message), 0);
+    printf("%d\n",send(tracker_sd, alive_message, sizeof(alive_message), 0));
     printf("ALIVE message sent\n");
 
     while (1)
@@ -110,6 +110,7 @@ int main(int argc, char const *argv[])
                     clnt_adr_sz = sizeof(client_adr);
                     client_sd = accept(serv_sd, (struct sockaddr *)&client_adr, &clnt_adr_sz);
 
+                    printf("Welcoming peer\n");
                     FD_SET(client_sd, &fds);
                     if(fd_max<client_sd)
                         fd_max = client_sd;
@@ -121,9 +122,40 @@ int main(int argc, char const *argv[])
                         error_handling("ERROR: receiving message");
                     }
                     
+                    printf("Received message from socket %d: %s\n", i, buffer);
+
+                    if(startsWith("NLIST",buffer)==1){
+                        strcpy(buffer,&buffer[6]);
+
+
+                        for(int j=0;j<neighbor_size;j++){
+                            FD_CLR(neighbor_sd[j],&fds);
+                            close(neighbor_sd[j]);
+                        }
+                        
+                        // DECODE MESSAGE
+                        neighbor_size = get_nlist(i,buffer, neighbor_list);
+
+                        for (int j=0; j<neighbor_size; j++) {
+                            neighbor_sd[j] = socket(PF_INET, SOCK_STREAM, 0);
+
+                            if (connect(neighbor_sd[j], (struct sockaddr*)&neighbor_list[j], sizeof(neighbor_list[j])) == -1) {
+                                // 받은 neighbor랑 연결이 안되면?
+                                printf("failed to connect\n");
+                            }
+
+
+                            //printf("success if no fail message\n");
+                            //FD_SET(neighbor_sd[j],&fds);
+                            // neighbor에게 LRQST 요청
+                            //printf("reaches here\n");
+                            //strcpy(message, lrqst_message);
+                            //send(neighbor_sd[j], message, sizeof(message), 0);
+                            //printf("Sent LRQST message to socket fd %d\n",neighbor_sd[j]);
+                        }
+                    }
+                    /*
                     strcpy(message, buffer);
-                    //printf("event happened\n");
-                    printf("message: %s\n", message);
 
                     message_type = strtok(message, "/");
                    // printf("message_type: %s\n", message_type);
@@ -144,17 +176,16 @@ int main(int argc, char const *argv[])
                         for (int j=0; j<neighbor_size; j++) {
                             neighbor_sd[j] = socket(PF_INET, SOCK_STREAM, 0);
                             
-                            /*
+                            
                             if (connect(neighbor_sd[j], (struct sockaddr*)&neighbor_list[j], sizeof(neighbor_list[j])) == -1) {
                                 // 받은 neighbor랑 연결이 안되면?
-                            }*/
+                            }
 
                             // neighbor에게 LRQST 요청
                             strcpy(message, lrqst_message);
                             send(neighbor_sd[j], message, sizeof(message), 0);
                             printf("Sent LRQST message to socket fd %d\n",neighbor_sd[j]);
-                        }
-                        
+                        }                       
                     }
                     // neighbor가 보유 chunk 목록을 요청 : type == CRQST ?
                     else if (strcmp(message_type,"LRQST")==0) {
@@ -196,7 +227,7 @@ int main(int argc, char const *argv[])
                     else {
                         printf("invalid message\n");
                         //error_handling("ERROR: survival from peer");
-                    }
+                    } */ 
                 }
             }
         }
@@ -224,8 +255,7 @@ int get_nlist(int sockfd, char* message, struct sockaddr_in *neighbor_list) {
         //printf("neighbor[%d]: %s\n", n, buf);
         inet_pton(AF_INET, buf, &(neighbor_list[n].sin_addr));
         buf = strtok(NULL, "/");
-        //printf("neighbor port [%d]: %s\n", n, buf);
-        inet_pton(AF_INET, buf, &(neighbor_list[n].sin_port));
+        neighbor_list[n].sin_port = atoi(buf);
     }
 
     return neighbor_size;
@@ -236,4 +266,12 @@ void error_handling(char *message)
     fputs(message, stderr);
     fputc('\n', stderr);
     exit(1);
+}
+
+int startsWith(const char *pre, const char *str)
+{
+    if (strncmp(pre, str, strlen(pre)) == 0)
+        return 1;
+    else
+        return 0;
 }
