@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
     if (listen(serv_sd, 10) == -1)
         error_handling("listen() error");
 
-    printf("bind and listen success\n");
+    printf("[Bind and listen success]\n");
 
     // fd table 초기화
     FD_ZERO(&fds);
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
         }
         else if (fd_num == 0) //timeout
         {
-            printf("No peers requesting!\n");
+            printf("Timeout\n");
         }
 
         // fd table 돌면서 event 생겼는지 확인
@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
                             sprintf(temp, "/%d", ntohs(neighbors_to_send[n].sin_port));
                             strcat(buf, temp);
 
-                            printf("neighbor [%d]: %s\n", n, buf);
+                            printf("Neighbor [%d]: %s\n", n, buf);
 
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
@@ -198,11 +198,6 @@ int get_random_neighbors(int req_fd, struct sockaddr_in *peers, struct sockaddr_
     //randomize candidate list
     shuffle(candidate_idx, idx + 1);
 
-    printf("Debugging... print randomized candidates idx\n");
-    for (int i = 0; i <= idx; i++)
-    {
-        printf("%d ", candidate_idx[i]);
-    }
     //set first N elements in <neighbors>
     for (int i = 0; i < ((idx + 1 > MAX_NEIGHBOR) ? MAX_NEIGHBOR : (idx + 1)); i++)
     {

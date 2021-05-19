@@ -22,6 +22,7 @@ int main(int argc, char const *argv[])
     int fd_num, str_len;
     int clnt_adr_sz;
     int chunk_offset, offset;
+    int user_input;
     int neighbor_size = 0;
     struct sockaddr_in serv_addr, client_adr, tracker_addr;
     struct sockaddr_in neighbor_list[3];
@@ -41,7 +42,7 @@ int main(int argc, char const *argv[])
 
     char chunk_offset_list[MAX_CHUNK_NUMBER];
     char data_list[MAX_CHUNK_NUMBER][CHUNK_SIZE];
-
+    int received_chunk_count = 0;
     fd_set fds, cpy_fds;
 
     if ((file = fopen(temp_filename, "rb")) != NULL)
@@ -56,14 +57,13 @@ int main(int argc, char const *argv[])
         {
             memset(data_list[i], 0, CHUNK_SIZE);
             offset = fread(data_list[i], 1, CHUNK_SIZE, file);
-            printf("offset: %d / content: %s\n", offset, data_list[i]);
+            //printf("offset: %d / content: %s\n", offset, data_list[i]);
         }
-
+        received_chunk_count = MAX_CHUNK_NUMBER;
         fclose(file);
     }
     else
     {
-        printf("hi\n");
         // 파일 없으므로 CHUNK_OFFSET_LIST 0으로 초기화
         for (int i = 0; i < MAX_CHUNK_NUMBER; i++)
         {
@@ -95,10 +95,32 @@ int main(int argc, char const *argv[])
     listen(serv_sd, MAX_NEIGHBOR + 2);
 
     connect(tracker_sd, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
-
     strcat(alive_message, argv[3]);
-    send(tracker_sd, alive_message, sizeof(alive_message), 0);
-    printf("ALIVE message sent\n");
+
+
+    do {
+        printf("==================================\n");
+        printf("Do you want to start downloading?\n");
+        printf(" 1: Yes\n");
+        printf(" 2: No\n");
+        printf("==================================\n");
+        printf(" Choice: ");
+        // scanf("%d", &user_input);
+        user_input = 1;
+        if (user_input == 2) {
+            printf("Finish P2P!\n");
+            // send(tracker_sd, close_message, sizeof(close_message), 0);
+            close(tracker_sd);
+            close(serv_sd);
+            return 0;
+        } else if (user_input == 1) {
+            send(tracker_sd, alive_message, sizeof(alive_message), 0);
+            printf("Sent ALIVE message to tracker\n");
+        }
+    } while((user_input != 1) && (user_input != 2));
+
+    // send(tracker_sd, alive_message, sizeof(alive_message), 0);
+    // printf("ALIVE message sent\n");
 
     // fd table 초기화
     FD_ZERO(&fds);
@@ -136,7 +158,7 @@ int main(int argc, char const *argv[])
                     if (fd_max < client_sd)
                         fd_max = client_sd;
                 }
-                else
+                else if(i>2)
                 {
                     //read message
                     if ((str_len = recv(i, buffer, sizeof(buffer), 0)) == -1)
@@ -178,7 +200,7 @@ int main(int argc, char const *argv[])
 
                             strcpy(message, lrqst_message);
                             send(neighbor_sd[j], message, sizeof(message), 0);
-                            printf("Sent LRQST message to socket fd %d\n", neighbor_sd[j]);
+                            //printf("Sent LRQST message to socket fd %d\n", neighbor_sd[j]);
                             memset(&buffer, 0, sizeof(buffer));
                             memset(&message, 0, sizeof(message));
                         }
@@ -187,7 +209,7 @@ int main(int argc, char const *argv[])
                     {
                         // 소유 chunk offset list를 serialize
                         // 메시지 format: LRESP/(ofset1)/(offset2)/../(마지막 offset)///
-                        printf("Received LRQST message\n");
+                        //printf("Received LRQST message\n");
                         strcpy(message, lresp_message);
                         char tmp[5];
                         for (int k = 0; k < MAX_CHUNK_NUMBER; k++)
@@ -199,7 +221,7 @@ int main(int argc, char const *argv[])
                             }
                         }
                         strcat(message, "//");
-                        printf("message to be sent is : %s", message);
+                        //printf("message to be sent is : %s", message);
                         send(i, message, sizeof(buffer), 0);
                         printf("\nSent LRESP message\n");
                         // serialized된 list를 neighbor에 보내기
@@ -207,22 +229,22 @@ int main(int argc, char const *argv[])
                     else if (startsWith("LRESP", buffer) == 1)
                     {
                         // parse list
-                        printf("Received LRESP message\n");
+                        //printf("Received LRESP message\n");
                         // strcpy(buffer, &buffer[5]);
                         strcpy(message, drqst_message);
 
                         // 하나씩 읽어들이면서 자기한테 없는거면?
                         //DRQST 보내기 ("DRQST/(offset)")
                         temp = strtok(buffer, "/");
-                        printf("Start searching chunks...\n");
+                        //printf("Start searching chunks...\n");
                         while (1)
                         {
                             temp = strtok(NULL, "/");
-                            printf("chunk: %s / buffer: %s\n", temp, buffer);
+                            //printf("chunk: %s / buffer: %s\n", temp, buffer);
                             // printf("%s\n", temp);
                             if (temp == NULL)
                             {
-                                printf("End searching chunks!\n");
+                                //printf("End searching chunks!\n");
                                 break;
                             }
 
@@ -233,15 +255,15 @@ int main(int argc, char const *argv[])
                                 memset(temp, 0, sizeof(temp));
                                 sprintf(temp, "/%d", chunk_offset);
                                 strcat(message, temp);
-                                printf("DREQST Sent - offset: %d to %d\n", chunk_offset, i);
-                                printf("return value of send(): %ld\n", send(i, message, BUF_SIZE, 0));
+                                //printf("DREQST Sent - offset: %d to %d\n", chunk_offset, i);
+                                send(i, message, BUF_SIZE, 0);
                                 break;
                             }
                         }
                     }
                     else if (startsWith("DRQST", buffer) == 1)
                     {
-                        printf("Received DRQST message\n");
+                        //printf("Received DRQST message\n");
                         strcpy(buffer, &buffer[6]);
                         strcpy(message, dresp_message);
                         // 해당 chunk data 보내주기
@@ -256,16 +278,15 @@ int main(int argc, char const *argv[])
                     }
                     else if (startsWith("DRESP", buffer) == 1)
                     {
-                        printf("Received DRESP message\n");
+                        //printf("Received DRESP message\n");
                         strcpy(buffer, &buffer[6]);
-                        // strtok(buffer, "/");
-                        printf("%s\n", buffer);
                         offset = atoi(strtok(buffer, "/"));
                         temp = strtok(NULL, "/");
                         strcpy(data_list[offset], temp);
-                        printf("[Saved Data!!] offset %d\ntext: %s\n", offset, data_list[offset]);
-
                         chunk_offset_list[offset] = 1;
+                        received_chunk_count++;
+                        printf("[RECEIVED CHUNK No. %d] Progress: [%d/%d]\n", offset,received_chunk_count,MAX_CHUNK_NUMBER);
+
                     }
                     else
                     {
