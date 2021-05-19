@@ -7,8 +7,8 @@
 #include <string.h>
 #define BUF_SIZE 100
 #define MAX_NEIGHBOR 3
-#define FILE_COUNT 3
-#define FILE_SIZE 8
+#define FILE_COUNT 4
+#define FILE_SIZE 33
 
 void encode_message(char *message, char *type);
 int get_nlist(int sockfd, char *message, struct sockaddr_in *neighbor_list);
@@ -24,6 +24,7 @@ int main(int argc, char const *argv[])
     int chunk_offset, offset;
     int user_input;
     int neighbor_size = 0;
+    int file_size = 0;
     struct sockaddr_in serv_addr, client_adr, tracker_addr;
     struct sockaddr_in neighbor_list[3];
 
@@ -40,32 +41,26 @@ int main(int argc, char const *argv[])
     char message[BUF_SIZE];
     struct timeval timeout;
 
-    //char *filenames[3] = {"1.txt", "2.txt", "3.txt"};
-    char has_file[3];
-    //char chunk_offset_list[MAX_CHUNK_NUMBER];
+    char *filenames[FILE_COUNT] = {"1.txt", "2.txt", "3.txt","4.txt",};
+    char has_file[FILE_COUNT];
     char data_list[FILE_COUNT][FILE_SIZE];
-    //int received_chunk_count = 0;
     fd_set fds, cpy_fds;
 
-    int i = 0;
-    printf("starting fopen()\n");
-    //for (int i = 0; i < FILE_COUNT; i++) {
-    FILE *fp = fopen(temp_filename, "rb");
-    if (fp != NULL)
-    {
-        printf("d");
-        // fread(data_list[i], sizeof(char), FILE_SIZE, file);
-        has_file[i] = 1;
-        //printf("Has file %s\n", filenames[i]);
-        fclose(file);
+    for (int i=0;i<FILE_COUNT;i++){
+        if((file = fopen(filenames[i],"rb"))!=NULL){
+            fseek(file, 0, SEEK_END);
+            file_size = ftell(file);
+            fseek(file, 0, SEEK_SET);
+            has_file[i] = 1;
+            fread(data_list[i], 1, FILE_SIZE,file);
+            memset(data_list[file_size], 0, 1);
+            printf("Has file %s\n",filenames[i]);
+            fclose(file);
+        }
+        else
+            has_file[i] = 0;
     }
-    else
-    {
-        printf("dss");
-        has_file[i] = 0;
-    }
-    //}
-
+    
     if (argc != 4)
     {
         printf("Usage: %s <tracker IP> <tracker port> <own port>\n", argv[0]);
@@ -92,33 +87,8 @@ int main(int argc, char const *argv[])
     connect(tracker_sd, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
     strcat(alive_message, argv[3]);
 
-    do
-    {
-        printf("==================================\n");
-        printf("Do you want to start downloading?\n");
-        printf(" 1: Yes\n");
-        printf(" 2: No\n");
-        printf("==================================\n");
-        printf(" Choice: ");
-        // scanf("%d", &user_input);
-        user_input = 1;
-        if (user_input == 2)
-        {
-            printf("Finish P2P!\n");
-            // send(tracker_sd, close_message, sizeof(close_message), 0);
-            close(tracker_sd);
-            close(serv_sd);
-            return 0;
-        }
-        else if (user_input == 1)
-        {
-            send(tracker_sd, alive_message, sizeof(alive_message), 0);
-            printf("Sent ALIVE message to tracker\n");
-        }
-    } while ((user_input != 1) && (user_input != 2));
-
-    // send(tracker_sd, alive_message, sizeof(alive_message), 0);
-    // printf("ALIVE message sent\n");
+    send(tracker_sd, alive_message, sizeof(alive_message), 0);
+    printf("ALIVE message sent\n");
 
     // fd table 초기화
     FD_ZERO(&fds);
@@ -126,7 +96,6 @@ int main(int argc, char const *argv[])
     FD_SET(tracker_sd, &fds);
     fd_max = tracker_sd;
 
-    //memset(&buffer, 0, sizeof(buffer));
     while (1)
     {
         cpy_fds = fds;
@@ -164,7 +133,7 @@ int main(int argc, char const *argv[])
                         error_handling("ERROR: receiving message");
                     }
 
-                    printf("Received message from socket %d: %s\n", i, buffer);
+                    //printf("Received message from socket %d: %s\n", i, buffer);
 
                     if (startsWith("NLIST", buffer) == 1)
                     {
@@ -283,9 +252,10 @@ int main(int argc, char const *argv[])
 
                         strcpy(data_list[offset], temp);
                         has_file[offset] = 1;
-                        //file = fopen(filenames[offset], "wb");
-                        fwrite(data_list[offset], sizeof(char), FILE_SIZE, file);
+                        file = fopen(filenames[offset], "wb");
+                        fwrite(data_list[offset], 1, strlen(data_list[offset]), file);
                         printf("[RECEIVED FILE No. %d]\n", offset);
+                        fclose(file);
                     }
                     else
                     {

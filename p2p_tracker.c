@@ -79,10 +79,6 @@ int main(int argc, char *argv[])
             printf("select error");
             break;
         }
-        else if (fd_num == 0) //timeout
-        {
-            printf("Timeout\n");
-        }
 
         // fd table 돌면서 event 생겼는지 확인
         for (int i = 0; i < fd_max + 1; i++)
@@ -117,7 +113,7 @@ int main(int argc, char *argv[])
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
-                    printf("Received message : %s\n", message);
+                    //printf("Received message : %s\n", message);
 
                     if (startsWith("ALIVE", message) == 1)
                     {
@@ -131,14 +127,14 @@ int main(int argc, char *argv[])
                         sprintf(buf, "/%d/", neighbor_size);
                         strcpy(message, nlist_message);
                         strcat(message, buf);
+                        printf("List of neighbors for %d: ",peer_list[i].sin_port);
                         for (int n = 0; n < neighbor_size; n++)
                         {
                             inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
                             sprintf(temp, "/%d", ntohs(neighbors_to_send[n].sin_port));
                             strcat(buf, temp);
 
-                            printf("Neighbor [%d]: %s\n", n, buf);
-
+                            printf(" %s, ",buf);
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
                         }
