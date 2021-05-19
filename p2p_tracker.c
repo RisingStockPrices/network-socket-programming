@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
                         strcat(message, buf);
                         for (int n = 0; n < neighbor_size; n++) {
                             inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
-                            sprintf(temp, "/%d", neighbors_to_send[n].sin_port);
+                            sprintf(temp, "/%d", ntohs(neighbors_to_send[n].sin_port));
                             strcat(buf, temp);
 
                             printf("neighbor [%d]: %s\n",n, buf);
