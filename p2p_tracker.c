@@ -100,7 +100,13 @@ int main(int argc, char *argv[])
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
-                    printf("Received message : %s\n", message);
+                    if(str_len ==0)
+                        {
+                            printf("Lost connection with %d\n",i);
+                            close(i);
+                            FD_CLR(i, &fds);
+                        }
+                    //printf("Received message : %s\n", message);
 
                     // ALIVE messages come with a port number of the client
                     // This port number needs to be saved in the NEIGHBOR_LIST to enable peer connections

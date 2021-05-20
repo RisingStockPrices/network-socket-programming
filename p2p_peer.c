@@ -65,7 +65,7 @@ int main(int argc, char const *argv[])
             file_size = ftell(file);
             fseek(file, 0, SEEK_SET);
             has_file[i] = 1;
-            is_questing[i] = 0;
+            is_requesting[i] = 0;
             fread(data_list[i], 1, FILE_SIZE, file);
             memset(&(data_list[i][file_size]), 0, 1);
             printf(" %s ,", filenames[i]);
@@ -73,7 +73,7 @@ int main(int argc, char const *argv[])
         }
         else{
             has_file[i] = 0;
-            is_questing[i] = 0;
+            is_requesting[i] = 0;
         }
             
     }
@@ -147,6 +147,7 @@ int main(int argc, char const *argv[])
                 // Handle events in already registered sockets
                 else
                 {
+
                     memset(buffer, 0, sizeof(buffer));
                     // Store incoming message in the BUFFER variable
                     if (recv(i, buffer, sizeof(buffer), 0) == -1)
@@ -154,13 +155,19 @@ int main(int argc, char const *argv[])
                         error_handling("ERROR: receiving message");
                     }
 
+                    if(strlen(buffer)==0)
+                        {
+                            printf("Lost connection with %d\n",i);
+                            close(i);
+                            FD_CLR(i, &fds);
+                        }
                     // Optional: use print statement below for debugging
-                    printf("Received message from socket %d: %s\n", i, buffer);
+                    //printf("Received message from socket %d: %s\n", i, buffer);
 
                     // Messages in our P2P system:
                     // There are four types of messages a peer can receive from another peer (neighbor)
                     // -> LRQST, LRESP, DRQST, DRSP
-                    // and one type a peer can receive from the TRACKER -> NLIST
+                    // and one type a peer can receive from the TFRACKER -> NLIST
 
                     // NLIST messages : Once the peer sends an ALIVE message to the tracker,
                     // the tracker responds with a NLIST type message, encoding information of its neighbors
@@ -187,6 +194,7 @@ int main(int argc, char const *argv[])
                         for (int j = 0; j < neighbor_size; j++)
                         {
                             neighbor_sd[j] = socket(PF_INET, SOCK_STREAM, 0);
+
 
                             if (connect(neighbor_sd[j], (struct sockaddr *)&(neighbor_list[j]), sizeof(neighbor_list[j])) == -1)
                             {
@@ -250,6 +258,7 @@ int main(int argc, char const *argv[])
                                 memset(temp, 0, sizeof(temp));
                                 sprintf(temp, "/%d", offset);
                                 strcat(message, temp);
+                                is_requesting[offset] = 1;
                                 send(i, message, BUF_SIZE, 0);
                                 break;
                             }
