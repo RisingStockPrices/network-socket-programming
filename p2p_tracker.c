@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
                     client_sd = accept(serv_sd, (struct sockaddr *)&client_adr, &clnt_adr_sz);
                     inet_ntop(AF_INET, &(client_adr.sin_addr), buf, INET_ADDRSTRLEN);
 
-                    printf("Welcome! %s %d\n", buf, client_adr.sin_port);
+                    printf("-------------\nWelcome! %s", buf);
                     // save client address to peer list
                     peer_list[client_sd] = client_adr;
 
@@ -94,12 +94,13 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
+                    memset(message,0,sizeof(message));
                     // read message
                     if ((str_len = recv(i, message, BUF_SIZE, 0)) == -1)
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
-                    //printf("Received message : %s\n", message);
+                    printf("Received message : %s\n", message);
 
                     // ALIVE messages come with a port number of the client
                     // This port number needs to be saved in the NEIGHBOR_LIST to enable peer connections
@@ -109,6 +110,7 @@ int main(int argc, char *argv[])
 
                         // save port number in PEER_LIST
                         peer_list[i].sin_port = htons(atoi(message));
+                        printf(" %d\n",ntohs(peer_list[i].sin_port));
                         // assign neighbors to the peer
                         neighbor_size = get_random_neighbors(i, peer_list, &neighbors_to_send);
 
@@ -116,7 +118,7 @@ int main(int argc, char *argv[])
                         sprintf(buf, "/%d/", neighbor_size);
                         strcpy(message, nlist_message);
                         strcat(message, buf);
-                        printf("List of neighbors for %d: ", peer_list[i].sin_port);
+                        printf("Generating neighbor list for %d: [",ntohs(peer_list[i].sin_port));
                         for (int n = 0; n < neighbor_size; n++)
                         {
                             inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
@@ -127,7 +129,7 @@ int main(int argc, char *argv[])
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
                         }
-                        printf("\n");
+                        printf("]\n");
                         send(i, message, sizeof(message), 0);
                     }
                     else
