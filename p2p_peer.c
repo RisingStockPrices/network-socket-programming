@@ -7,56 +7,88 @@
 #include <string.h>
 #define BUF_SIZE 100
 #define MAX_NEIGHBOR 3
-#define MAX_CHUNK_NUMBER 100
-#define CHUNK_SIZE 32
+#define FILE_COUNT 4
+#define FILE_SIZE 33
 
-int get_nlist(int sockfd, char* message, struct sockaddr_in *neighbor_list);
+void encode_message(char *message, char *type);
+int get_nlist(int sockfd, char *message, struct sockaddr_in *neighbor_list);
+void error_handling(char *message);
+int find_neighbor_idx(int sd, int neighbor_size, int *neighbor_sd);
+int starts_with(const char *pre, const char *str);
 
 int main(int argc, char const *argv[])
 {
     int serv_sd, client_sd, tracker_sd, neighbor_sd[MAX_NEIGHBOR];
-    int fd_max;
-    int fd_num, str_len;
-    int clnt_adr_sz;
-    int neighbor_size;
-    struct sockaddr_in serv_addr, client_adr, tracker_addr;
-    struct sockaddr_in neighbor_list[3];
+    int fd_max, fd_num;
+    int clnt_addr_sz;
+    int offset;
+    int neighbor_size = 0;
+    int has_all_files = 0;
+    int file_size = 0;
+    struct sockaddr_in serv_addr, clnt_addr, tracker_addr;
+    struct sockaddr_in neighbor_list[MAX_NEIGHBOR];
+    fd_set fds, cpy_fds;
+    FILE *file;
 
-    char *alive_message = "ALIVE";
+    // Message types for P2P system
+    char alive_message[BUF_SIZE] = "ALIVE";
     char *lrqst_message = "LRQST";
     char *drqst_message = "DRQST";
-    char *sresp_message = "LRESP";
+    char *lresp_message = "LRESP/";
     char *dresp_message = "DRESP";
-    char *temp_filename = "happy.txt";
-    FILE* file;
+
+    char *temp;
     char buffer[BUF_SIZE];
-    char *message_type;
-    char* temp;
     char message[BUF_SIZE];
-    struct timeval timeout;
 
-    char chunk_offset_list[MAX_CHUNK_NUMBER];
-    char* data_list[MAX_CHUNK_NUMBER];
+    // FILENAMES is the pool of files to share between peers
+    // If a peer has a file matching any of the names in the pool,
+    // it may be read and saved in its neighbor's file system
+    char *filenames[FILE_COUNT] = {
+        "1.txt",
+        "2.txt",
+        "3.txt",
+        "4.txt",
+    };
+    char has_file[FILE_COUNT];
+    char is_requesting[FILE_COUNT];
+    char data_list[FILE_COUNT][FILE_SIZE];
 
-    fd_set fds;
-
-    if((file = fopen(temp_filename,"r")!=NULL))
+    // Check if the current peer has files specified in the FILENAMES pool
+    // if yes, save the data in the DATA_LIST array
+    printf("PEER %s's files: [",argv[3]);
+    for (int i = 0; i < FILE_COUNT; i++)
     {
-        // 다 있는 걸로 CHUNK_OFFSET_LIST 췤
-        memset(&chunk_offset_list, 1, sizeof(chunk_offset_list));
-    } else {
-        // 파일 없으므로 CHUNK_OFFSET_LIST 0으로 초기화
-        memset(&chunk_offset_list, 0, sizeof(chunk_offset_list));
+        if ((file = fopen(filenames[i], "rb")) != NULL)
+        {
+            fseek(file, 0, SEEK_END);
+            file_size = ftell(file);
+            fseek(file, 0, SEEK_SET);
+            has_file[i] = 1;
+            is_requesting[i] = 0;
+            fread(data_list[i], 1, FILE_SIZE, file);
+            memset(&(data_list[i][file_size]), 0, 1);
+            printf(" %s ,", filenames[i]);
+            fclose(file);
+        }
+        else{
+            has_file[i] = 0;
+            is_requesting[i] = 0;
+        }
+            
     }
+    printf("]\n");
 
-    
+    // Once the peer starts execution,
+    // it tries to initiate the connection with the tracker (<tracker IP>:<tracker port>),
+    // and listen on its <own port>
     if (argc != 4)
     {
         printf("Usage: %s <tracker IP> <tracker port> <own port>\n", argv[0]);
         exit(1);
     }
 
-    //소켓 생성
+    // Create sockets for the peer itself and the tracker
     serv_sd = socket(PF_INET, SOCK_STREAM, 0);
     tracker_sd = socket(PF_INET, SOCK_STREAM, 0);
 
@@ -71,142 +103,215 @@ int main(int argc, char const *argv[])
     tracker_addr.sin_port = htons(atoi(argv[2]));
 
     bind(serv_sd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-    listen(serv_sd, MAX_NEIGHBOR+2);    
+    listen(serv_sd, MAX_NEIGHBOR + 2);
 
-    bind(tracker_sd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-    connect(tracker_sd, (struct sockaddr*)&tracker_addr, sizeof(tracker_addr));
+    // Peers act as a client to the tracker, which is why we need to use connect()
+    connect(tracker_sd, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
+    strcat(alive_message, argv[3]);
 
-    // fd table 초기화
+    // Once the connection is established, send an ALIVE message to the tracker,
+    // as a way of telling the tracker to join the p2p system
+    send(tracker_sd, alive_message, sizeof(alive_message), 0);
+    printf("ALIVE message sent to tracker\n");
+
+    // fd table initialization
     FD_ZERO(&fds);
     FD_SET(serv_sd, &fds);
     FD_SET(tracker_sd, &fds);
     fd_max = tracker_sd;
 
-    //TODO: timeout 설정
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 1000;
-
-    send(tracker_sd, alive_message, strlen(alive_message), 0);
-    printf("ALIVE message sent\n");
-    //str_len = recv(tracker_sd, buffer, BUF_SIZE, 0);
-    //printf("len: %d/  %s\n", str_len, buffer);
-
     while (1)
     {
-        //sleep(1);
+        cpy_fds = fds;
 
-
-        if ((fd_num = select(fd_max + 1, &fds, NULL, NULL, NULL)) == -1)
+        if ((fd_num = select(fd_max + 1, &cpy_fds, NULL, NULL, NULL)) == -1)
         {
             printf("select error");
             break;
         }
-        else if(fd_num==0)
-        {
-            printf("timeout\n");
-        }
 
         for (int i = 0; i < (fd_max + 1); i++)
         {
-            
-            if (FD_ISSET(i, &fds))
+            if (FD_ISSET(i, &cpy_fds))
             {
-                printf("fd %d is set\n", i);
+                // Handle initial connections from neighbors and tracker
                 if (i == serv_sd)
                 {
-                    clnt_adr_sz = sizeof(client_adr);
-                    client_sd = accept(serv_sd, (struct sockaddr *)&client_adr, &clnt_adr_sz);
+                    clnt_addr_sz = sizeof(clnt_addr);
+                    client_sd = accept(serv_sd, (struct sockaddr *)&clnt_addr, &clnt_addr_sz);
 
                     FD_SET(client_sd, &fds);
-                    if(fd_max<client_sd)
+                    if (fd_max < client_sd)
                         fd_max = client_sd;
                 }
-                else {
-                    //read message
-                    if ((str_len = recv(i, buffer, sizeof(buffer), 0)) == -1)
+                // Handle events in already registered sockets
+                else
+                {
+
+                    memset(buffer, 0, sizeof(buffer));
+                    // Store incoming message in the BUFFER variable
+                    if (recv(i, buffer, sizeof(buffer), 0) == -1)
                     {
                         error_handling("ERROR: receiving message");
                     }
 
-
-                    printf("buffer size: %d\n", strlen(buffer));
-                    printf("buffer: %s\n", buffer);
-                    
-                    strcpy(message, buffer);
-                    printf("event happened\n");
-                    printf("message: %s\n", message);
-
-                    message_type = strtok(message, "/");
-                    printf("message_type: %s\n", message_type);
-                    
-                    // tracker가 neighbor list를 보내줌 : type == NLIST ?
-                    if (strcmp(message_type,"NLIST")==0)
-                    {
-                        // parse message
-                        neighbor_size = get_nlist(i, strtok(NULL, ""), neighbor_list);
-
-                        // update fd table (reset)
-                        for (int j=0;j<fd_max;j++){
-                            if(j!=0 && j!=serv_sd){
-                                FD_CLR(j,&fds);
-                                close(j);
-                            }
+                    if(strlen(buffer)==0)
+                        {
+                            printf("Lost connection with %d\n",i);
+                            close(i);
+                            FD_CLR(i, &fds);
                         }
-                        for (int j=0; j<neighbor_size; j++) {
+                    // Optional: use print statement below for debugging
+                    //printf("Received message from socket %d: %s\n", i, buffer);
+
+                    // Messages in our P2P system:
+                    // There are four types of messages a peer can receive from another peer (neighbor)
+                    // -> LRQST, LRESP, DRQST, DRSP
+                    // and one type a peer can receive from the TFRACKER -> NLIST
+
+                    // NLIST messages : Once the peer sends an ALIVE message to the tracker,
+                    // the tracker responds with a NLIST type message, encoding information of its neighbors
+                    // ACTION: LRQST should be sent for each extracted neighbor
+                    // FORMAT: "NLIST/(number of neighbors)/(N1 IP)/(N1 PORT)/(N2 IP)/(N2 PORT)/...//"
+                    if (starts_with("NLIST", buffer) == 1)
+                    {
+                        for(int k=0;k<FILE_COUNT;k++){
+                            if(has_file[k]==0)
+                                break;
+                            else if (k==FILE_COUNT-1)
+                                {
+                                    printf("No files to request!\n");
+                                    has_all_files = 1;
+                                }
+                        }
+                        // DECODE NLIST message sent by tracker
+                        // get_nlist returns number of neighbors, and stores neighbor info in NEIGHBOR_LIST
+                        if(has_all_files==0){
+                        strcpy(buffer, &buffer[6]);
+                        neighbor_size = get_nlist(tracker_sd, buffer, neighbor_list);
+
+                        // for all extracted neighbors, open up a socket and initiate the connection
+                        for (int j = 0; j < neighbor_size; j++)
+                        {
                             neighbor_sd[j] = socket(PF_INET, SOCK_STREAM, 0);
-                            if (connect(neighbor_sd[j], (struct sockaddr*)&neighbor_list[j], sizeof(neighbor_list[j])) == -1) {
-                                // 받은 neighbor랑 연결이 안되면?
+
+
+                            if (connect(neighbor_sd[j], (struct sockaddr *)&(neighbor_list[j]), sizeof(neighbor_list[j])) == -1)
+                            {
+                                sprintf(message,"Connection failed with neighbor %d\n", j);
+                                error_handling(message);
                             }
-                            // neighbor에게 LRQST 요청
+
+                            printf("-------------\nWelcoming peer %d\n", ntohs(neighbor_list[j].sin_port));
+                            FD_SET(neighbor_sd[j], &fds);
+                            if (fd_max < neighbor_sd[j])
+                            {
+                                fd_max = neighbor_sd[j];
+                            }
+
+                            // Send a LRQST message to each neighbor, requesting the list of files of the neighbor
                             strcpy(message, lrqst_message);
                             send(neighbor_sd[j], message, sizeof(message), 0);
+                            memset(buffer, 0, sizeof(buffer));
+                            memset(message, 0, sizeof(message));
                         }
-                        
-                    }
-                    // neighbor가 보유 chunk 목록을 요청 : type == CRQST ?
-                    else if (strcmp(message_type,"LRQST")==0) {
-                        // 소유 chunk offset list를 serialize
-                        // 메시지 format: LRESP/(ofset1)/(offset2)/../(마지막 offset)///
-                        memset(&buffer,0, sizeof(buffer));
-                        sprintf(buffer,"LRESP/");
-                        for(int i=0;i<MAX_CHUNK_NUMBER;i++){
-                            if(chunk_offset_list[i]==1)
-                                sprintf(buffer,"%d/",i);
                         }
-                        sprintf(buffer,"//");
-                        send(i, buffer,sizeof(buffer), 0);
-                        // serialized된 list를 neighbor에 보내기
                     }
-                    // neighbor가 특정 chunk 데이터를 요청 : type == DRQST ?
-                    else if (strcmp(message_type, "DRQST")==0){
-                        
+                    // LRQST messages : Once the peer gets a list of neighbors from the tracker,
+                    // it sends out a LRQST message requesting a list of all files in the FILENAMES list currently in the neighbor's file system
+                    // ACTION: LRESP should be sent back to the requester, returning what the LRQST message asks for
+                    // FORMAT: "LRQST"
+                    else if (starts_with("LRQST", buffer) == 1)
+                    {
+                        // ENCODE the LRESP message and send back to the requester
+                        strcpy(message, lresp_message);
+                        char tmp[5];
+                        for (int k = 0; k < FILE_COUNT; k++)
+                        {
+                            if (has_file[k] == 1)
+                            {
+                                sprintf(tmp, "%d/", k);
+                                strcat(message, tmp);
+                            }
+                        }
+                        strcat(message, "//");
+                        send(i, message, sizeof(buffer), 0);
                     }
-                    // neighbor가 chunk 데이터 목록을 응답해옴 : type == LRESP ?
-                    else if (strcmp(message_type, "LRESP")==0){
-                        // parse list
-                        strtok(message,"/");
-                        do{
+                    // LRESP messages : Get file list from neighbor, and send DRQST for absent file.
+                    // FORMAT: "LRESP/(file index 1)/(file index 2)/...//"
+                    else if (starts_with("LRESP", buffer) == 1)
+                    {
+                        strcpy(message, drqst_message);
+                        temp = strtok(buffer, "/");
+                        while (1)
+                        {
                             temp = strtok(NULL, "/");
-                            printf("%d\n",temp);
-                        }while(strcmp(temp,"/")!=0);
+                            if (temp == NULL)
+                            {
+                                printf("No files to receive from neighbor %d\n", ntohs(neighbor_list[find_neighbor_idx(i, neighbor_size, neighbor_sd)].sin_port));
+                                break;
+                            }
+
+                            offset = atoi(temp);
+                            if ((has_file[offset] != 1) && (is_requesting[offset] != 1))
+                            {
+                                memset(temp, 0, sizeof(temp));
+                                sprintf(temp, "/%d", offset);
+                                strcat(message, temp);
+                                is_requesting[offset] = 1;
+                                send(i, message, BUF_SIZE, 0);
+                                break;
+                            }
+                        }
                         
-                        //memset(&buffer,0, sizeof(buffer));
-                        //sprintf(buffer,"DRQST/");
-                        //request data
                     }
-                    // neighbor가 요청한 데이터를 응답해옴 : type == DRESP ?
-                    else if (strcmp(message_type, "DRESP")==0){
+
+                    // DRQST messages: Check which file the peer is requesting,
+                    // and send the corresponding file data to the peer
+                    // FORMAT: "DRQST/(requesting file index)/(file data)//"
+                    else if (starts_with("DRQST", buffer) == 1)
+                    {
+                        strcpy(buffer, &buffer[6]);
+                        strcpy(message, dresp_message);
+                        temp = strtok(buffer, "/");
+                        offset = atoi(temp);
+                        strcat(message, "/");
+                        strcat(message, temp);
+                        strcat(message, "/");
+                        strcat(message, data_list[offset]);
+
+                        printf("PEER is requesting file [%s]...\n", filenames[offset]);
+                        if ((send(i, message, sizeof(message), 0)) != -1) {
+                            printf("Successfully sent file [%s] to PEER\n", filenames[offset], ntohs(neighbor_list[find_neighbor_idx(i, neighbor_size, neighbor_sd)].sin_port));
+                        }
                         
                     }
-                    else {
-                        // invalid message
-                        error_handling("ERROR: survival from peer");
+                    // DRESP messages: Receive file data from the neighbor, and write file
+                    // FORMAT: "DRESP/(receiving file index)/(file data)"
+                    else if (starts_with("DRESP", buffer) == 1)
+                    {
+                        // get the receiving file index
+                        strcpy(buffer, &buffer[6]);
+                        offset = atoi(strtok(buffer, "/"));
+                        temp = strtok(NULL, "/");
+
+                        // update data_list for the receiving file,
+                        // and write file
+                        strcpy(data_list[offset], temp);
+                        has_file[offset] = 1;
+                        is_requesting[offset] = 0;
+                        file = fopen(filenames[offset], "wb");
+                        fwrite(data_list[offset], 1, strlen(data_list[offset]), file);
+                        printf("[RECEIVED FILE %s from PEER %d]\n", filenames[offset], ntohs(neighbor_list[find_neighbor_idx(i, neighbor_size, neighbor_sd)].sin_port));
+                        fclose(file);
+                    }
+                    else
+                    {
+                        error_handling("ERROR: unknown command");
                     }
                 }
             }
         }
-
-        
     }
 
     close(tracker_sd);
@@ -214,26 +319,49 @@ int main(int argc, char const *argv[])
     return 0;
 }
 
-int get_nlist(int sockfd, char* message, struct sockaddr_in *neighbor_list) {
-    // char message[BUF_SIZE];
-    char * buf;
+// starts_with
+// : Check if the str starts with pre
+int starts_with(const char *pre, const char *str)
+{
+    if (strncmp(pre, str, strlen(pre)) == 0)
+        return 1;
+    else
+        return 0;
+}
+
+// get_nlist
+// : Extract neighbor list from the message
+int get_nlist(int sockfd, char *message, struct sockaddr_in *neighbor_list)
+{
+    char *buf;
     int neighbor_size;
     int n;
 
-    printf("message from get_nlist: %s\n", message);
     buf = strtok(message, "/");
     neighbor_size = atoi(buf);
-    printf("neighbor size: %d\n", neighbor_size);
-    for (n = 0; n < neighbor_size; n++) {
+    for (n = 0; n < neighbor_size; n++)
+    {
+        memset(&neighbor_list[n], 0, sizeof(neighbor_list[n]));
+        neighbor_list[n].sin_family = AF_INET;
         buf = strtok(NULL, "/");
-        printf("neighbor[%d]: %s\n", n, buf);
         inet_pton(AF_INET, buf, &(neighbor_list[n].sin_addr));
         buf = strtok(NULL, "/");
-        printf("neighbor port [%d]: %s\n", n, buf);
-        inet_pton(AF_INET, buf, &(neighbor_list[n].sin_port));
+        neighbor_list[n].sin_port = htons(atoi(buf));
     }
 
     return neighbor_size;
+}
+
+int find_neighbor_idx(int sd, int neighbor_size, int *neighbor_sd) {
+    int requester_idx = -1;
+    for(int k=0;k<neighbor_size; k++){
+        if(neighbor_sd[k]==sd)
+        {
+            requester_idx = k;
+            break;
+        }
+    }
+    return requester_idx;
 }
 
 void error_handling(char *message)

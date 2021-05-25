@@ -6,11 +6,14 @@
 #include <sys/socket.h>
 #include <time.h>
 
-#define BUF_SIZE 30
-#define MAX_CLIENT 10
+#define BUF_SIZE 100
+#define MAX_PEER 10
 #define MAX_NEIGHBOR 3
-#define TIME_OUT 1000
 void error_handling(char *message);
+int unregister_neighbor(struct sockaddr_in *peers, fd_set *set, int fd);
+int get_random_neighbors(int req_fd, struct sockaddr_in *peers, struct sockaddr_in *neighbors);
+void shuffle(int *arr, int num);
+int starts_with(const char *pre, const char *str);
 
 int main(int argc, char *argv[])
 {
@@ -23,14 +26,11 @@ int main(int argc, char *argv[])
     char message[BUF_SIZE];
     char *nlist_message = "NLIST";
 
-    struct sockaddr_in serv_adr, peer_list[MAX_CLIENT], neighbors_to_send[MAX_NEIGHBOR], client_adr;
-    struct timeval timeout;
+    struct sockaddr_in serv_adr, peer_list[MAX_PEER], neighbors_to_send[MAX_NEIGHBOR], client_adr;
 
-    
     socklen_t clnt_adr_sz;
 
-    fd_set fds;
-
+    fd_set fds, cpy_fds;
 
     if (argc < 2)
     {
@@ -38,8 +38,8 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    memset(&peer_list,0,sizeof(peer_list));
-    //소켓 생성
+    memset(&peer_list, 0, sizeof(peer_list));
+
     serv_sd = socket(PF_INET, SOCK_STREAM, 0);
 
     //server address을 null 로 초기화
@@ -48,59 +48,44 @@ int main(int argc, char *argv[])
     serv_adr.sin_addr.s_addr = htonl(INADDR_ANY);
     serv_adr.sin_port = htons(atoi(argv[1]));
 
-    // welcoming socket (최대 10개까지 listen)
-    if( bind(serv_sd, (struct sockaddr *)&serv_adr, sizeof(serv_adr))==-1){
+    if (bind(serv_sd, (struct sockaddr *)&serv_adr, sizeof(serv_adr)) == -1)
         error_handling("bind() error");
-    }
-    
-    // Listen the connection setup request from clients.
-    if (listen(serv_sd, 10) == -1)
+
+    if (listen(serv_sd, MAX_PEER) == -1)
         error_handling("listen() error");
 
-    printf("bind and listen success\n");
+    printf("[Bind and listen success]\n");
 
-    // fd table 초기화
+    // Initialize FD table for IO multiplexing
     FD_ZERO(&fds);
     FD_SET(serv_sd, &fds);
     fd_max = serv_sd;
 
-    timeout.tv_sec = 50;
-    timeout.tv_usec = 5000;
-
     while (1)
     {
+        cpy_fds = fds;
         // select: fd table 에 등록된 애들 중 event 생긴 socket 수 return
-        if ((fd_num = select(fd_max + 1, &fds, NULL, NULL, NULL) == -1))
+        if ((fd_num = select(fd_max + 1, &cpy_fds, NULL, NULL, NULL) == -1))
         {
             printf("select error");
             break;
         }
-        else if (fd_num == 0) //timeout
-        {
-            printf("No peers requesting!\n");
-        }
 
-        // fd table 돌면서 event 생겼는지 확인
+        // Iterate through the FD table and check for events
         for (int i = 0; i < fd_max + 1; i++)
         {
-            if (FD_ISSET(i, &fds))
+            if (FD_ISSET(i, &cpy_fds))
             {
-                //welcoming socket에서 생긴 event
                 if (i == serv_sd)
                 {
-                    /*
-                    새 connection 을 받아들여, fd table 에 자리 내줌
-                    */
                     clnt_adr_sz = sizeof(peer_list[fd_max]);
                     client_sd = accept(serv_sd, (struct sockaddr *)&client_adr, &clnt_adr_sz);
                     inet_ntop(AF_INET, &(client_adr.sin_addr), buf, INET_ADDRSTRLEN);
-                    
 
-                    printf("Welcome! %s %d\n", buf, client_adr.sin_port);
-                    //save client address to peer list
+                    printf("-------------\nWelcome! %s", buf);
+                    // save client address to peer list
                     peer_list[client_sd] = client_adr;
 
-                    //update fd table
                     FD_SET(client_sd, &fds);
                     if (fd_max < client_sd)
                     {
@@ -109,46 +94,53 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
+                    memset(message,0,sizeof(message));
                     // read message
                     if ((str_len = recv(i, message, BUF_SIZE, 0)) == -1)
                     {
                         error_handling("ERROR: receiving message from peers");
                     }
-                    printf("message: %s///\n", message);
-                    memset(&message[5], 0, 1);
+                    if(str_len ==0)
+                        {
+                            printf("Lost connection with %d\n",i);
+                            close(i);
+                            FD_CLR(i, &fds);
+                        }
+                    //printf("Received message : %s\n", message);
 
-                    if (strcmp("ALIVE", message) == 0)
+                    // ALIVE messages come with a port number of the client
+                    // This port number needs to be saved in the NEIGHBOR_LIST to enable peer connections
+                    if (starts_with("ALIVE", message) == 1)
                     {
-                        // 새 nlist 뽑아주기
-                        // serialize message
-                        // 보냄 : NLIST/(수)/(IP1)/(IP2)/...
+                        strcpy(message, &message[5]);
 
-                    
+                        // save port number in PEER_LIST
+                        peer_list[i].sin_port = htons(atoi(message));
+                        printf(" %d\n",ntohs(peer_list[i].sin_port));
+                        // assign neighbors to the peer
                         neighbor_size = get_random_neighbors(i, peer_list, &neighbors_to_send);
-                        
-                        printf("neighbor size is %d\n",neighbor_size);
+
+                        // ENCODE MESSAGE
                         sprintf(buf, "/%d/", neighbor_size);
                         strcpy(message, nlist_message);
                         strcat(message, buf);
-                        for (int n = 0; n < neighbor_size; n++) {
+                        printf("Generating neighbor list for %d: [",ntohs(peer_list[i].sin_port));
+                        for (int n = 0; n < neighbor_size; n++)
+                        {
                             inet_ntop(AF_INET, &(neighbors_to_send[n].sin_addr), buf, INET_ADDRSTRLEN);
                             sprintf(temp, "/%d", ntohs(neighbors_to_send[n].sin_port));
                             strcat(buf, temp);
 
-                            printf("neighbor [%d]: %s\n",n, buf);
-
+                            printf(" %s, ", buf);
                             strcat(message, buf);
                             strcat(message, n == (neighbor_size - 1) ? "" : "/");
                         }
-                        printf("message: %s\n", message);
-                        str_len = send(i, message, sizeof(message), 0);
-                        printf("string length: %d\n",str_len);
-                       
+                        printf("]\n");
+                        send(i, message, sizeof(message), 0);
                     }
                     else
                     {
-                        // invalid message
-                        error_handling("ERROR: survival from peer");
+                        printf("invalid message\n");
                     }
                 }
             }
@@ -159,52 +151,59 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-// 배열을 섞는 함수 
-void shuffle(int *arr, int num) { 
-    srand(time(NULL)); 
-    int temp; 
-    int rn; 
-    for (int i=0; i < num-1; i++) {
-         rn = rand() % (num - i) + i; // i 부터 num-1 사이에 임의의 정수 생성 
-         temp = arr[i]; 
-         arr[i] = arr[rn]; 
-         arr[rn] = temp; 
-    } 
+// starts_with
+// : Check if the str starts with pre
+int starts_with(const char *pre, const char *str)
+{
+    if (strncmp(pre, str, strlen(pre)) == 0)
+        return 1;
+    else
+        return 0;
 }
 
-int get_random_neighbors(int req_fd, struct sockaddr_in* peers, struct sockaddr_in* neighbors){
-    int candidate_idx[MAX_CLIENT];
-    int idx=-1;
-    struct sockaddr_in invalid_addr;
-   
-    memset(&invalid_addr,0,sizeof(invalid_addr));
+// shuffle
+// : shuffles the elements in arr in random order
+void shuffle(int *arr, int num)
+{
+    srand(time(NULL));
+    int temp;
+    int rn;
+    for (int i = 0; i < num - 1; i++)
+    {
+        rn = rand() % (num - i) + i;
+        temp = arr[i];
+        arr[i] = arr[rn];
+        arr[rn] = temp;
+    }
+}
 
-    for(int i=0;i<MAX_CLIENT;i++){
-        if(i==req_fd)
+// get_random_neighbors
+// : Among the neighbors, get at most MAX_PEER neighbors randomly
+int get_random_neighbors(int req_fd, struct sockaddr_in *peers, struct sockaddr_in *neighbors)
+{
+    int candidate_idx[MAX_PEER];
+    int idx = -1;
+    struct sockaddr_in invalid_addr;
+
+    memset(&invalid_addr, 0, sizeof(invalid_addr));
+
+    for (int i = 0; i < MAX_PEER; i++)
+    {
+        if (i == req_fd)
             continue;
-        if(memcmp(&peers[i],&invalid_addr,sizeof(invalid_addr))==0)
+        if (memcmp(&peers[i], &invalid_addr, sizeof(invalid_addr)) == 0)
             continue;
         candidate_idx[++idx] = i;
     }
-    //randomize candidate list
-    shuffle(candidate_idx,idx+1);
-    
-    printf("Debugging... print randomized candidates idx\n");
-    for(int i=0;i<=idx;i++){
-        printf("%d ",candidate_idx[i]);
-    }
-    //set first N elements in <neighbors>
-    for(int i=0;i<((idx+1>MAX_NEIGHBOR)?MAX_NEIGHBOR:(idx+1));i++){
+    // randomize candidate list
+    shuffle(candidate_idx, idx + 1);
+
+    // set first N elements in <neighbors>
+    for (int i = 0; i < ((idx + 1 > MAX_NEIGHBOR) ? MAX_NEIGHBOR : (idx + 1)); i++)
+    {
         neighbors[i] = peers[candidate_idx[i]];
     }
-    return idx+1;
-}
-
-
-int unregister_neighbor(struct sockaddr_in *peers, fd_set *set, int fd)
-{
-    FD_CLR(fd, set);
-    memset(&peers[fd], 0, sizeof(peers[fd]));
+    return idx + 1;
 }
 
 void error_handling(char *message)
